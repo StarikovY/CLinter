@@ -76,6 +76,20 @@ void lx_next(Lexer* lx) {
             if (!strcmp(u, "APPEND")) { lx->cur.type = T_APPEND; return; }
             if (!strcmp(u, "OUTPUT")) { lx->cur.type = T_OUTPUTKW; return; }
             if (!strcmp(u, "DIM")) { lx->cur.type = T_DIM; return; }
+            if (!strcmp(u, "DATA")) { lx->cur.type = T_DATA; return; }
+            if (!strcmp(u, "READ")) { lx->cur.type = T_READ; return; }
+            if (!strcmp(u, "RESTORE")) { lx->cur.type = T_RESTORE; return; }
+            if (!strcmp(u, "TRACE")) { lx->cur.type = T_TRACE; return; }
+            if (!strcmp(u, "ON")) { lx->cur.type = T_ON; return; }
+            if (!strcmp(u, "OFF")) { lx->cur.type = T_OFF; return; }
+            if (!strcmp(u, "DUMP")) { lx->cur.type = T_DUMP; return; }
+            if (!strcmp(u, "VARS")) { lx->cur.type = T_VARS; return; }
+            if (!strcmp(u, "ARRAYS")) { lx->cur.type = T_ARRAYS; return; }
+            if (!strcmp(u, "STACK")) { lx->cur.type = T_STACK; return; }
+            if (!strcmp(u, "QUIT")) { lx->cur.type = T_QUIT; return; }
+            if (!strcmp(u, "RENUM")) { lx->cur.type = T_RENUM; return; }
+            if (!strcmp(u, "BYE")) { lx->cur.type = T_BYE; return; }
+
             /* default ident */
             lx->cur.type = T_IDENT; strncpy(lx->cur.text, t, sizeof(lx->cur.text) - 1); lx->cur.text[sizeof(lx->cur.text) - 1] = 0; return;
         }
@@ -96,6 +110,7 @@ void lx_next(Lexer* lx) {
         case ')': lx->cur.type = T_RPAREN; return;
         case ',': lx->cur.type = T_COMMA; return;
         case ';': lx->cur.type = T_SEMI; return;
+        case '^': lx->cur.type = T_POWOP; return;
         }
     }
     lx_next(lx); /* skip unknown */
@@ -103,6 +118,7 @@ void lx_next(Lexer* lx) {
 
 /* --- Parser (expressions) --- */
 static double parse_factor(Lexer*lx);
+static double parse_power(Lexer* lx); 
 static double parse_term(Lexer*lx);
 static double parse_expr(Lexer*lx);
 
@@ -161,12 +177,194 @@ static double parse_factor(Lexer* lx) {
     if (t.type == T_IDENT) 
     {
         /* Upper-case for comparison */
-        char fname[32];
+        char fname[32]; size_t k;
         strncpy(fname, t.text, sizeof(fname) - 1);
         fname[sizeof(fname) - 1] = 0;
-        for (char* p = fname; *p; p++) *p = (char)toupper((unsigned char)*p);
+        // for (char* p = fname; *p; p++) *p = (char)toupper((unsigned char)*p);
+        for (k = 0; fname[k]; ++k) fname[k] = (char)toupper((unsigned char)fname[k]);
         
         /* List of supported functions: one argument unless POW (two) */
+        if (!strcmp(fname, "RND")) {
+            static int seeded = 0;
+            lx_next(lx); if (lx->cur.type == T_LPAREN) { lx_next(lx); /* optional arg ignored */ (void)parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); }
+            if (!seeded) { srand(1); seeded = 1; } /* deterministic unless you later add RANDOMIZE */
+            return (double)rand() / (double)RAND_MAX;
+        }
+
+        if (!strcmp(fname, "INT")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return floor(v); }
+        }
+        if (!strcmp(fname, "SGN")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return (v > 0) - (v < 0); }
+        }
+        if (!strcmp(fname, "LOG10")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return log10(v); }
+        }
+
+        if (!strcmp(fname, "LEN")) {
+            /* LEN(string) -> number */
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            {
+                double n = 0.0;
+                if (lx->cur.type == T_STRING) { n = (double)strlen(lx->cur.text); lx_next(lx); }
+                else if (lx->cur.type == T_IDENT) {
+                    /* string var or string array element or STR$/CHR$ call */
+                    char nbuf[32]; strncpy(nbuf, lx->cur.text, sizeof(nbuf) - 1); nbuf[sizeof(nbuf) - 1] = 0;
+                    if (is_string_var_name(nbuf)) {
+                        lx_next(lx);
+                        if (lx->cur.type == T_LPAREN) {
+                            /* string array element */
+                            int subs[MAX_DIMS], nsubs = 0; SArray* sa = sarray_find(nbuf);
+                            lx_next(lx);
+                            while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
+                                if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); break; }
+                                subs[nsubs++] = (int)parse_rel(lx);
+                                if (lx->cur.type == T_COMMA) { lx_next(lx); continue; }
+                                else break;
+                            }
+                            if (lx->cur.type == T_RPAREN) lx_next(lx);
+                            { const char* s = sa ? sarray_get(sa, subs, nsubs) : ""; n = (double)strlen(s); }
+                        }
+                        else {
+                            Variable* v = find_var(nbuf); const char* s = (v && v->type == VT_STR && v->str) ? v->str : ""; n = (double)strlen(s);
+                        }
+                    }
+                    else {
+                        /* maybe STR$() or CHR$()? Treat as 0 length if unknown here */
+                        n = 0.0;
+                    }
+                }
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+                return n;
+            }
+        }
+        if (!strcmp(fname, "ASC")) {
+            /* ASC(string) -> numeric code of first char (0 if empty) */
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            {
+                int c = 0;
+                if (lx->cur.type == T_STRING) { c = (unsigned char)lx->cur.text[0]; lx_next(lx); }
+                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                    char nbuf[32]; strncpy(nbuf, lx->cur.text, sizeof(nbuf) - 1); nbuf[sizeof(nbuf) - 1] = 0; lx_next(lx);
+                    if (lx->cur.type == T_LPAREN) {
+                        int subs[MAX_DIMS], nsubs = 0; SArray* sa = sarray_find(nbuf); lx_next(lx);
+                        while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
+                            if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); break; }
+                            subs[nsubs++] = (int)parse_rel(lx);
+                            if (lx->cur.type == T_COMMA) { lx_next(lx); continue; }
+                            else break;
+                        }
+                        if (lx->cur.type == T_RPAREN) lx_next(lx);
+                        { const char* s = sa ? sarray_get(sa, subs, nsubs) : ""; c = (unsigned char)(s[0] ? s[0] : 0); }
+                    }
+                    else {
+                        Variable* v = find_var(nbuf); const char* s = (v && v->type == VT_STR && v->str) ? v->str : ""; c = (unsigned char)(s[0] ? s[0] : 0);
+                    }
+                }
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+                return (double)c;
+            }
+        }
+        if (!strcmp(fname, "VAL")) {
+            /* VAL(string) -> number */
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            {
+                double out = 0.0;
+                if (lx->cur.type == T_STRING) { out = atof(lx->cur.text); lx_next(lx); }
+                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                    Variable* v = find_var(lx->cur.text); const char* s = (v && v->type == VT_STR && v->str) ? v->str : ""; out = atof(s); lx_next(lx);
+                }
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+                return out;
+            }
+        }
+
+        /* NOTE: CHR$ and STR$ return strings; in numeric context they coerce via atof(""). */
+        if (!strcmp(fname, "CHR$")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            { int code = (int)parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); char tmp[4]; tmp[0] = (char)code; tmp[1] = 0; return atof(tmp); }
+        }
+        if (!strcmp(fname, "STR$")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); char buf[64]; _snprintf(buf, sizeof(buf), "%.15g", v); return atof(buf); }
+        }
+
+        /* PI constant (no args; optional parentheses tolerated) */
+        if (!strcmp(fname, "PI")) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) { lx_next(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); }
+            return 3.14159265358979323846;
+        }
+
+        /* POS(hay$, needle$) -> 1-based index (0 if not found) */
+        if (!strcmp(fname, "POS")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            {
+                const char* hay = "", * nee = "";
+                if (lx->cur.type == T_STRING) { hay = lx->cur.text; lx_next(lx); }
+                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                    Variable* v = find_var(lx->cur.text); hay = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+                }
+                if (lx->cur.type == T_COMMA) lx_next(lx);
+                if (lx->cur.type == T_STRING) { nee = lx->cur.text; lx_next(lx); }
+                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                    Variable* v = find_var(lx->cur.text); nee = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+                }
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+                if (!hay || !nee) return 0.0;
+                { const char* p = strstr(hay, nee); return p ? (double)((int)(p - hay) + 1) : 0.0; }
+            }
+        }
+
+        /* TAB(n) — in numeric context just returns n (PRINT handles spacing) */
+        if (!strcmp(fname, "TAB")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return v; }
+        }
+
+        /* SEG$(s$, start, len) — numeric context coerces with atof result */
+        if (!strcmp(fname, "SEG$")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            {
+                const char* s = ""; int start = 1, len = 0;
+                if (lx->cur.type == T_STRING) { s = lx->cur.text; lx_next(lx); }
+                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                    Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+                }
+                if (lx->cur.type == T_COMMA) { lx_next(lx); start = (int)parse_rel(lx); }
+                if (lx->cur.type == T_COMMA) { lx_next(lx); len = (int)parse_rel(lx); }
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+                if (start < 1) start = 1; if (len < 0) len = 0;
+                {
+                    int sl = (int)strlen(s); int i0 = start - 1; if (i0 > sl) i0 = sl; if (i0 < 0) i0 = 0;
+                    int l = len; if (i0 + l > sl) l = sl - i0; if (l < 0) l = 0;
+                    char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
+                    memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
+                }
+            }
+        }
+
+        /* TRM$(s$) — trims leading and trailing spaces; numeric context coerces */
+        if (!strcmp(fname, "TRM$")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            {
+                const char* s = ""; if (lx->cur.type == T_STRING) { s = lx->cur.text; lx_next(lx); }
+                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                    Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+                }
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+                {
+                    char buf[1024]; size_t n = strlen(s), a = 0, b = n;
+                    while (a < b && isspace((unsigned char)s[a])) a++;
+                    while (b > a && isspace((unsigned char)s[b - 1])) b--;
+                    { size_t l = b - a; if (l > sizeof(buf) - 1) l = sizeof(buf) - 1; memcpy(buf, s + a, l); buf[l] = 0; return atof(buf); }
+                }
+            }
+        }
+
         if (strcmp(fname, "ATN") == 0) {
             lx_next(lx);
             if (lx->cur.type == T_LPAREN) lx_next(lx);
@@ -267,12 +465,13 @@ static double parse_factor(Lexer* lx) {
     return 0.0;
 }
 
-static double parse_term(Lexer*lx)
+static double parse_term(Lexer* lx) 
 {
-    double v=parse_factor(lx);
-    while(lx->cur.type==T_STAR||lx->cur.type==T_SLASH){
-        TokType op=lx->cur.type; lx_next(lx);
-        { double rhs=parse_factor(lx); if(op==T_STAR) v*=rhs; else v/=rhs; }
+    double v = parse_power(lx);           /* was parse_factor */
+    while (lx->cur.type == T_STAR || lx->cur.type == T_SLASH) {
+        TokType op = lx->cur.type; lx_next(lx);
+        double rhs = parse_power(lx);     /* was parse_factor */
+        if (op == T_STAR) v *= rhs; else v /= rhs;
     }
     return v;
 }
@@ -297,4 +496,16 @@ double parse_rel(Lexer*lx)
           return r?1.0:0.0; }
     }
     return lhs;
+}
+
+/* Right-associative exponentiation */
+static double parse_power(Lexer* lx) {
+    double left = parse_factor(lx);
+    if (lx->cur.type == T_POWOP) {
+        lx_next(lx);
+        /* recurse to stay right-associative: a^b^c = a^(b^c) */
+        double right = parse_power(lx);
+        left = pow(left, right);
+    }
+    return left;
 }

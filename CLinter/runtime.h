@@ -28,7 +28,8 @@ typedef enum {
     T_OPEN, T_CLOSE, T_AS, T_APPEND, T_OUTPUTKW,
     T_HASH, T_LINE, T_DIM,
     T_EQ, T_NE, T_LT, T_GT, T_LE, T_GE,
-    T_PLUS, T_MINUS, T_STAR, T_SLASH, T_LPAREN, T_RPAREN, T_COMMA, T_SEMI
+    T_PLUS, T_MINUS, T_STAR, T_SLASH, T_LPAREN, T_RPAREN, T_COMMA, T_SEMI, T_POWOP,
+    T_DATA, T_READ, T_RESTORE, T_TRACE, T_ON, T_OFF, T_DUMP, T_VARS, T_ARRAYS, T_STACK, T_QUIT, T_RENUM, T_BYE
 } TokType;
 
 /* +++ ARRAYS +++ */
@@ -65,6 +66,9 @@ typedef struct {
 
 extern SArray g_sarrays[MAX_SARRAYS];
 extern int    g_sarray_count;
+
+extern int g_trace;
+
 
 /* string array helpers (implemented in main.cpp) */
 SArray* sarray_find(const char* name);

@@ -30,6 +30,8 @@ int g_array_count = 0;
 SArray g_sarrays[MAX_SARRAYS]; 
 int g_sarray_count = 0;
 
+int g_trace = 0;
+
 /* --------- Utilities & program mgmt --------- */
 
 char* strdup_c(const char* s) { size_t n = strlen(s); char* p = (char*)malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
@@ -292,6 +294,8 @@ static void run_program(void) {
 		int code, jump = 0;
 
 		{
+			if (g_trace) printf("[TRACE] %d %s\n", curLine, src);
+
 			char tmp[MAX_LINE_LEN]; 
 			strncpy(tmp, src, sizeof(tmp) - 1); 
 			tmp[sizeof(tmp) - 1] = 0; trim(tmp);
