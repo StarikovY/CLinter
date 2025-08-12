@@ -364,7 +364,7 @@ int main(void)
 	char line[MAX_LINE_LEN];
 	memset(g_files, 0, sizeof(g_files));
 
-	printf("MINI-BASIC (RT-11 style, Classic C — split files) — type HELP for help\nREADY.\n");
+	printf("Linter - The interpreter of BASIC Programming language\n 		Yuri Starikov - 1986 - 2025.\n This version was written on C++\n Type HELP for help\nREADY.\n");
 
 	for (;;) {
 		printf("> ");

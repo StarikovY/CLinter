@@ -1,6 +1,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <ctype.h>
 #include "runtime.h"
 #include "parse.h"
@@ -157,7 +158,81 @@ static double parse_factor(Lexer* lx) {
     if (t.type == T_NUMBER) { double v = t.number; lx_next(lx); return v; }
     if (t.type == T_LPAREN) { double v; lx_next(lx); v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return v; }
 
-    if (t.type == T_IDENT) {
+    if (t.type == T_IDENT) 
+    {
+        /* Upper-case for comparison */
+        char fname[32];
+        strncpy(fname, t.text, sizeof(fname) - 1);
+        fname[sizeof(fname) - 1] = 0;
+        for (char* p = fname; *p; p++) *p = (char)toupper((unsigned char)*p);
+        
+        /* List of supported functions: one argument unless POW (two) */
+        if (strcmp(fname, "ATN") == 0) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return atan(v);
+        }
+        if (strcmp(fname, "COS") == 0) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return cos(v);
+        }
+        if (strcmp(fname, "SIN") == 0) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return sin(v);
+        }
+        if (strcmp(fname, "TAN") == 0) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return tan(v);
+        }
+        if (strcmp(fname, "EXP") == 0) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return exp(v);
+        }
+        if (strcmp(fname, "LOG") == 0) { /* natural log */
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return log(v);
+        }
+        if (strcmp(fname, "POW") == 0) { /* two args */
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double b = parse_rel(lx);
+            if (lx->cur.type == T_COMMA) { lx_next(lx); }
+            double e = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return pow(b, e);
+        }
+        if (strcmp(fname, "SQR") == 0) { /* sqrt */
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return sqrt(v);
+        }
+        if (strcmp(fname, "ABS") == 0) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return fabs(v);
+        }
+
         /* possible array element? */
         lx_next(lx);
         if (lx->cur.type == T_LPAREN) {
