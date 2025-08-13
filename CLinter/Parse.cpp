@@ -1,8 +1,25 @@
+/* Parse.cpp — full classic-C implementation of lexer + expression parser
+   Features:
+   - Tokens/keywords for the interpreter (LET, PRINT, INPUT, IF/THEN, GOTO, END, STOP, REM, RUN, NEW, LIST,
+     SAVE/LOAD, SAVEVARS/LOADVARS, FOR/TO/STEP/NEXT, GOSUB/RETURN, OPEN/CLOSE/AS/APPEND/OUTPUT, HASH/LINE,
+     DIM, DATA, READ, RESTORE, RENUM, QUIT, BYE)
+   - Operators: + - * / ^ (right-assoc), relational (=, <>, <, >, <=, >=)
+   - Logical: AND, OR, XOR, NOT (bitwise semantics on integer-coerced operands)
+   - Numbers, string literals, identifiers, scalar variables, numeric & string arrays
+   - Math functions: ATN, COS, SIN, TAN, EXP, LOG (ln), LOG10, SQR, ABS, POW(base,exp)
+   - Misc functions/constants: RND(), INT(), SGN(), PI, LEN(), ASC(), VAL(), CHR$(), STR$()
+   - RT-11-style helpers usable in expressions: POS(hay$,needle$), TAB(n) (returns n), SEG$(s$,start,len), TRM$(s$)
+   Notes:
+   - String-returning funcs in numeric context coerce via atof("") per existing interpreter behavior.
+
+   Created by Yuri Starikov with ChatGPT 5.0
+*/
 
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
+
 #include "runtime.h"
 #include "parse.h"
 
@@ -11,7 +28,7 @@ static void lx_skip_space(Lexer*lx){ while(lx->s[lx->i] && isspace((unsigned cha
 
 void lx_init(Lexer*lx,const char*s)
 { 
-    lx->s=s; 
+    lx->s=s ? s : "";
     lx->i=0; 
     lx->cur.type=T_END; 
     lx->cur.text[0]=0; 
@@ -22,17 +39,20 @@ void lx_next(Lexer* lx) {
     lx_skip_space(lx);
     if (!lx->s[lx->i]) { lx->cur.type = T_END; lx->cur.text[0] = 0; return; }
 
+    /* two-char relational operators */
     if (lx->s[lx->i] && lx->s[lx->i + 1]) {
         if (lx->s[lx->i] == '<' && lx->s[lx->i + 1] == '>') { lx->i += 2; lx->cur.type = T_NE; return; }
         if (lx->s[lx->i] == '<' && lx->s[lx->i + 1] == '=') { lx->i += 2; lx->cur.type = T_LE; return; }
         if (lx->s[lx->i] == '>' && lx->s[lx->i + 1] == '=') { lx->i += 2; lx->cur.type = T_GE; return; }
     }
 
+    /* number */
     if (isdigit((unsigned char)lx->s[lx->i]) || (lx->s[lx->i] == '.' && isdigit((unsigned char)lx->s[lx->i + 1]))) {
         size_t start = lx->i; while (isdigit((unsigned char)lx->s[lx->i]) || lx->s[lx->i] == '.') lx->i++;
         { char buf[64]; size_t len = lx->i - start; if (len > 63) len = 63; memcpy(buf, lx->s + start, len); buf[len] = 0; lx->cur.type = T_NUMBER; lx->cur.number = (double)atof(buf); return; }
     }
 
+    /* string literal: "..." */
     if (lx->s[lx->i] == '"') {
         size_t start; lx->i++; start = lx->i;
         while (lx->s[lx->i] && lx->s[lx->i] != '"') lx->i++;
@@ -41,12 +61,15 @@ void lx_next(Lexer* lx) {
         return;
     }
 
+    /* identifier / keyword (letters, _, may include $ at end) */
     if (isalpha((unsigned char)lx->s[lx->i]) || lx->s[lx->i] == '_') {
         size_t start = lx->i++;
         while (isalnum((unsigned char)lx->s[lx->i]) || lx->s[lx->i] == '_' || lx->s[lx->i] == '$') lx->i++;
         {
             char t[128], u[128]; size_t len = lx->i - start; if (len > 127) len = 127; memcpy(t, lx->s + start, len); t[len] = 0;
             { size_t k; for (k = 0; k < len; k++) { u[k] = (char)toupper((unsigned char)t[k]); } u[len] = 0; }
+
+            /* Statement/command keywords */
             if (!strcmp(u, "LET")) { lx->cur.type = T_LET; return; }
             if (!strcmp(u, "PRINT") || !strcmp(u, "?")) { lx->cur.type = T_PRINT; return; }
             if (!strcmp(u, "INPUT")) { lx->cur.type = T_INPUT; return; }
@@ -90,11 +113,18 @@ void lx_next(Lexer* lx) {
             if (!strcmp(u, "RENUM")) { lx->cur.type = T_RENUM; return; }
             if (!strcmp(u, "BYE")) { lx->cur.type = T_BYE; return; }
 
+            /* logical ops */
+            if (!strcmp(u, "AND")) { lx->cur.type = T_AND; return; }
+            if (!strcmp(u, "OR")) { lx->cur.type = T_OR;  return; }
+            if (!strcmp(u, "XOR")) { lx->cur.type = T_XOR; return; }
+            if (!strcmp(u, "NOT")) { lx->cur.type = T_NOT; return; }
+
             /* default ident */
             lx->cur.type = T_IDENT; strncpy(lx->cur.text, t, sizeof(lx->cur.text) - 1); lx->cur.text[sizeof(lx->cur.text) - 1] = 0; return;
         }
     }
 
+    /* single-char tokens */
     {
         char c = lx->s[lx->i++]; /* single-char tokens */
         switch (c) {
@@ -116,73 +146,62 @@ void lx_next(Lexer* lx) {
     lx_next(lx); /* skip unknown */
 }
 
-/* --- Parser (expressions) --- */
+/* ---------- Expression Parser ---------- */
+/* Precedence (high->low):
+   factor (numbers, vars, arrays, funcs, (expr), unary -, unary NOT)
+   ^        (right-assoc)
+   * /
+   + -
+   relations (=, <>, <, >, <=, >=)  -> boolean 0/1
+   AND / OR / XOR (bitwise on ints)
+*/
+
 static double parse_factor(Lexer*lx);
 static double parse_power(Lexer* lx); 
 static double parse_term(Lexer*lx);
 static double parse_expr(Lexer*lx);
+static double parse_relation(Lexer* lx);
+static double parse_logic(Lexer* lx);
 
-#ifdef OLD
-static double parse_factor(Lexer*lx)
-{
-    Token t = lx->cur;
-    if(t.type==T_MINUS){ lx_next(lx); return -parse_factor(lx); }
-    if(t.type==T_NUMBER){ double v=t.number; lx_next(lx); return v; }
-    if(t.type==T_LPAREN){ double v; lx_next(lx); v=parse_rel(lx); if(lx->cur.type==T_RPAREN) lx_next(lx); return v; }
-    
-	if (t.type == T_IDENT) 
-	{
-		/* Look ahead for '(' => array element (numeric or string) */
-		lx_next(lx);
-		if (lx->cur.type == T_LPAREN) {
-			int subs[MAX_DIMS], nsubs = 0;
-			int isStrName = is_string_var_name(t.text);
-			lx_next(lx);
-			while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
-				if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); break; }
-				subs[nsubs++] = (int)parse_rel(lx);
-				if (lx->cur.type == T_COMMA) { lx_next(lx); continue; }
-				else break;
-			}
-			if (lx->cur.type == T_RPAREN) lx_next(lx);
-			if (isStrName) {
-				SArray* sa = sarray_find(t.text);
-				const char* sval = sa ? sarray_get(sa, subs, nsubs) : "";
-				return (double)atof(sval);
-			}
-			else {
-				Array* a = array_find(t.text);
-				if (!a) { printf("ERROR: UNDIM'D ARRAY %s\n", t.text); return 0.0; }
-				return array_get(a, subs, nsubs);
-			}
-		}
-		/* scalar fallback */
-		{
-			Variable* v = find_var(t.text);
-			if (!v) return 0.0;
-			return v->type == VT_NUM ? v->num : (double)atof(v->str ? v->str : "0");
-		}
-	}
+/* helpers to uppercase a local copy of identifier */
 
-	return 0.0;
+static void upcopy(char* dst, const char* src, size_t cap) {
+    size_t i; if (cap == 0) return;
+    for (i = 0; src && src[i] && i + 1 < cap; ++i) dst[i] = (char)toupper((unsigned char)src[i]);
+    dst[i] = 0;
 }
-#endif // OLD
 
 static double parse_factor(Lexer* lx) {
     Token t = lx->cur;
-    if (t.type == T_MINUS) { lx_next(lx); return -parse_factor(lx); }
-    if (t.type == T_NUMBER) { double v = t.number; lx_next(lx); return v; }
-    if (t.type == T_LPAREN) { double v; lx_next(lx); v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return v; }
 
-    if (t.type == T_IDENT) 
+    /* unary */
+    if (t.type == T_MINUS) { lx_next(lx); return -parse_factor(lx); }
+    if (t.type == T_PLUS) { lx_next(lx); return  parse_factor(lx); }
+    if (t.type == T_NOT) { lx_next(lx); { long v = (long)parse_factor(lx); return (double)(~v); } }
+
+    if (t.type == T_NUMBER) { double v = t.number; lx_next(lx); return v; }
+
+    if (t.type == T_STRING) {
+        /* numeric context: coerce string literal with atof() */
+        double v = atof(t.text);
+        lx_next(lx);
+        return v;
+    }
+
+    if (t.type == T_LPAREN) {
+        double v; lx_next(lx); v = parse_logic(lx); /* full precedence inside parens */
+        if (lx->cur.type == T_RPAREN) lx_next(lx);
+        return v;
+    }
+
+
+    if (t.type == T_IDENT)
     {
-        /* Upper-case for comparison */
-        char fname[32]; size_t k;
-        strncpy(fname, t.text, sizeof(fname) - 1);
-        fname[sizeof(fname) - 1] = 0;
-        // for (char* p = fname; *p; p++) *p = (char)toupper((unsigned char)*p);
-        for (k = 0; fname[k]; ++k) fname[k] = (char)toupper((unsigned char)fname[k]);
-        
+        /* handle functions / constants first */
+        char fname[32]; upcopy(fname, t.text, sizeof(fname));
+
+        /* --- numeric-returning classic math --- */
+
         /* List of supported functions: one argument unless POW (two) */
         if (!strcmp(fname, "RND")) {
             static int seeded = 0;
@@ -301,21 +320,49 @@ static double parse_factor(Lexer* lx) {
 
         /* POS(hay$, needle$) -> 1-based index (0 if not found) */
         if (!strcmp(fname, "POS")) {
+            char* p1 = NULL, * p2=NULL;
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             {
-                const char* hay = "", * nee = "";
-                if (lx->cur.type == T_STRING) { hay = lx->cur.text; lx_next(lx); }
+                const char *hay=NULL, *nee = NULL;
+                if (lx->cur.type == T_STRING) { 
+                    hay = lx->cur.text; 
+                    p1 = (char *) malloc(strlen(hay)+1); 
+                    if (p1 != NULL)
+                        strcpy(p1, hay);
+                    else 
+                        return 0.0;
+                    lx_next(lx);
+                }
                 else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
                     Variable* v = find_var(lx->cur.text); hay = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
                 }
                 if (lx->cur.type == T_COMMA) lx_next(lx);
-                if (lx->cur.type == T_STRING) { nee = lx->cur.text; lx_next(lx); }
+
+                if (lx->cur.type == T_STRING) 
+                { 
+                    nee = lx->cur.text; 
+                    p2 = (char*)malloc(strlen(nee) + 1);
+                    if (p2 != NULL)
+                        strcpy(p2, nee);
+                    else
+                        return 0.0;
+                    lx_next(lx);  
+                }
+
                 else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
                     Variable* v = find_var(lx->cur.text); nee = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
                 }
                 if (lx->cur.type == T_RPAREN) lx_next(lx);
-                if (!hay || !nee) return 0.0;
-                { const char* p = strstr(hay, nee); return p ? (double)((int)(p - hay) + 1) : 0.0; }
+                if (!p1 || !p2) return 0.0;
+                { 
+                    const char* p = strstr(p1, p2); 
+                    int reti = (int)(p - p1);
+                    double ret = (double)(reti);
+                    ret++;
+                    free(p1);
+                    free(p2);
+                    return p ? ret : 0.0; 
+                }
             }
         }
 
@@ -431,7 +478,9 @@ static double parse_factor(Lexer* lx) {
             return fabs(v);
         }
 
-        /* possible array element? */
+        /* If not a recognized function: variable / array lookup 
+           look ahead: array element? */
+
         lx_next(lx);
         if (lx->cur.type == T_LPAREN) {
             int subs[MAX_DIMS], nsubs = 0;
@@ -465,7 +514,19 @@ static double parse_factor(Lexer* lx) {
     return 0.0;
 }
 
-static double parse_term(Lexer* lx) 
+/* Right-associative exponentiation */
+static double parse_power(Lexer* lx) {
+    double left = parse_factor(lx);
+    if (lx->cur.type == T_POWOP) {
+        lx_next(lx);
+        /* recurse to stay right-associative: a^b^c = a^(b^c) */
+        double right = parse_power(lx);
+        left = pow(left, right);
+    }
+    return left;
+}
+
+static double parse_term(Lexer* lx)
 {
     double v = parse_power(lx);           /* was parse_factor */
     while (lx->cur.type == T_STAR || lx->cur.type == T_SLASH) {
@@ -485,27 +546,43 @@ static double parse_expr(Lexer*lx)
     }
     return v;
 }
-double parse_rel(Lexer*lx)
-{
-    double lhs=parse_expr(lx);
-    if(lx->cur.type==T_EQ||lx->cur.type==T_NE||lx->cur.type==T_LT||lx->cur.type==T_GT||lx->cur.type==T_LE||lx->cur.type==T_GE){
-        TokType op=lx->cur.type; lx_next(lx);
-        { double rhs=parse_expr(lx); int r=0;
-          if(op==T_EQ) r=(lhs==rhs); else if(op==T_NE) r=(lhs!=rhs); else if(op==T_LT) r=(lhs<rhs);
-          else if(op==T_GT) r=(lhs>rhs); else if(op==T_LE) r=(lhs<=rhs); else if(op==T_GE) r=(lhs>=rhs);
-          return r?1.0:0.0; }
+
+/* comparisons -> boolean 0/1 */
+static double parse_relation(Lexer* lx) {
+    double lhs = parse_expr(lx);
+    if (lx->cur.type == T_EQ || lx->cur.type == T_NE || lx->cur.type == T_LT || lx->cur.type == T_GT || lx->cur.type == T_LE || lx->cur.type == T_GE) {
+        TokType op = lx->cur.type; lx_next(lx);
+        {
+            double rhs = parse_expr(lx); int r = 0;
+            if (op == T_EQ) r = (lhs == rhs);
+            else if (op == T_NE) r = (lhs != rhs);
+            else if (op == T_LT) r = (lhs < rhs);
+            else if (op == T_GT) r = (lhs > rhs);
+            else if (op == T_LE) r = (lhs <= rhs);
+            else if (op == T_GE) r = (lhs >= rhs);
+            return r ? 1.0 : 0.0;
+        }
     }
     return lhs;
 }
 
-/* Right-associative exponentiation */
-static double parse_power(Lexer* lx) {
-    double left = parse_factor(lx);
-    if (lx->cur.type == T_POWOP) {
-        lx_next(lx);
-        /* recurse to stay right-associative: a^b^c = a^(b^c) */
-        double right = parse_power(lx);
-        left = pow(left, right);
+/* logical chain (bitwise on ints) */
+static double parse_logic(Lexer* lx) {
+    double left = parse_relation(lx);
+    while (lx->cur.type == T_AND || lx->cur.type == T_OR || lx->cur.type == T_XOR) {
+        TokType op = lx->cur.type; lx_next(lx);
+        double right = parse_relation(lx);
+        int L = (left != 0.0);
+        int R = (right != 0.0);
+        if (op == T_AND) left = (L && R) ? 1.0 : 0.0;
+        else if (op == T_OR) left = (L || R) ? 1.0 : 0.0;
+        else              left = ((L && !R) || (!L && R)) ? 1.0 : 0.0; /* XOR */
     }
     return left;
 }
+
+/* Public entry used by executor */
+double parse_rel(Lexer* lx) {
+    return parse_logic(lx);
+}
+

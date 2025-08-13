@@ -5,6 +5,7 @@
 #include "runtime.h"
 #include "parse.h"
 #include "wxecut.h"
+#include "printfunc.h"
 
 /* --- exec helpers (no parsing here) --- */
 static int read_filename_after(Lexer*lx, char*out, size_t outsz){
@@ -203,6 +204,11 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 	if (lx.cur.type == T_REM) return 0;
 	if (lx.cur.type == T_DATA) return 0;
 
+	if (lx.cur.type == T_BYE) {
+		if (duringRun) { printf("ERROR: BYE not allowed during RUN\n"); return -1; }
+		exit(0);
+	}
+
 	/* Example: handle NEW command */
 	if (lx.cur.type == T_NEW) {
 		prog_clear();
@@ -394,148 +400,51 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		return 0;
 	}
 
-
-	/* PRINT (console or file) — supports string arrays */
-	if (lx.cur.type == T_PRINT)
-	{
-		FILE* out = stdout; lx_next(&lx);
-		if (lx.cur.type == T_HASH) {
-			lx_next(&lx);
-			if (lx.cur.type != T_NUMBER) { printf("ERROR: PRINT # needs handle\n"); return -1; }
-			out = file_from_handle((int)lx.cur.number); if (!out) { printf("ERROR: bad handle\n"); return -1; }
-			lx_next(&lx); if (lx.cur.type == T_COMMA || lx.cur.type == T_SEMI) lx_next(&lx);
-		}
-		{
-			int first = 1; while (lx.cur.type != T_END)
-			{
-				if (!first) { if (lx.cur.type == T_COMMA || lx.cur.type == T_SEMI) { lx_next(&lx); } else fprintf(out, " "); }
-				first = 0;
-				if (lx.cur.type == T_STRING) { fprintf(out, "%s", lx.cur.text); lx_next(&lx); }
-				else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text))
-				{
-					char nbuf[32]; strncpy(nbuf, lx.cur.text, sizeof(nbuf) - 1); nbuf[sizeof(nbuf) - 1] = 0; lx_next(&lx);
-					/* string functions CHR$(), STR$() */
-					if (_stricmp(nbuf, "CHR$") == 0) {
-						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-						{ double v = parse_rel(&lx); char ch[2]; ch[0] = (char)((int)v); ch[1] = 0; fprintf(out, "%s", ch); }
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-					}
-					else if (_stricmp(nbuf, "STR$") == 0) {
-						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-						{ double v = parse_rel(&lx); char buf[64]; _snprintf(buf, sizeof(buf), "%.15g", v); fprintf(out, "%s", buf); }
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-					}
-					else if (_stricmp(nbuf, "SEG$") == 0) {
-						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-						{ /* SEG$(s$,start,len) */
-							const char* s = ""; int start = 1, len = 0;
-							if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
-							else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
-								Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
-							}
-							if (lx.cur.type == T_COMMA) { lx_next(&lx); start = (int)parse_rel(&lx); }
-							if (lx.cur.type == T_COMMA) { lx_next(&lx); len = (int)parse_rel(&lx); }
-							{
-								int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl;
-								int l = len; if (l < 0) l = 0; if (i0 + l > sl) l = sl - i0; char tmp[1024];
-								if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1; memcpy(tmp, s + i0, l); tmp[l] = 0; fprintf(out, "%s", tmp);
-							}
-						}
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-					}
-					else if (_stricmp(nbuf, "TRM$") == 0) {
-						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-						{
-							const char* s = ""; if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
-							else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
-								Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
-							}
-							{
-								size_t n = strlen(s), a = 0, b = n; while (a < b && isspace((unsigned char)s[a]))a++; while (b > a && isspace((unsigned char)s[b - 1]))b--;
-								char tmp[1024]; size_t l = b - a; if (l > sizeof(tmp) - 1) l = sizeof(tmp) - 1; memcpy(tmp, s + a, l); tmp[l] = 0; fprintf(out, "%s", tmp);
-							}
-						}
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-					}
-					else if (lx.cur.type == T_LPAREN) {
-						/* string array element */
-						int subs[MAX_DIMS], nsubs = 0; SArray* sa = sarray_find(nbuf);
-						lx_next(&lx);
-						while (lx.cur.type != T_RPAREN && lx.cur.type != T_END) {
-							if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); break; }
-							subs[nsubs++] = (int)parse_rel(&lx);
-							if (lx.cur.type == T_COMMA) { lx_next(&lx); continue; }
-							else break;
-						}
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-						fprintf(out, "%s", sa ? sarray_get(sa, subs, nsubs) : "");
-					}
-					else {
-						/* scalar string var */
-						Variable* v = find_var(nbuf); fprintf(out, "%s", (v && v->type == VT_STR && v->str) ? v->str : "");
-					}
-				}
-				else
-				{
-					double val = parse_rel(&lx); fprintf(out, "%.15g", val);
-				}
-			} fprintf(out, "\n");
-		}
-		return 0;
+	// PRINT 
+	if (lx.cur.type == T_PRINT) {
+		return exec_print(&lx);
 	}
 
-	/* INPUT / LINE INPUT (unchanged behavior) */
-	if (lx.cur.type == T_INPUT)
-	{
+	/* IF <cond> THEN [GOTO|GOSUB] <line> */
+	if (lx.cur.type == T_IF) {
+		double cond;
 		lx_next(&lx);
-		if (lx.cur.type == T_HASH) {
-			int handle; FILE* fp; char vname[32]; int isStr;
-			lx_next(&lx);
-			if (lx.cur.type != T_NUMBER) { printf("ERROR: INPUT # needs handle\n"); return -1; }
-			handle = (int)lx.cur.number; lx_next(&lx);
-			fp = file_from_handle(handle); if (!fp) { printf("ERROR: bad handle\n"); return -1; }
-			if (lx.cur.type == T_COMMA) lx_next(&lx);
-			if (lx.cur.type != T_IDENT) { printf("ERROR: INPUT # needs variable\n"); return -1; }
-			strncpy(vname, lx.cur.text, sizeof(vname) - 1); vname[sizeof(vname) - 1] = 0; isStr = is_string_var_name(vname);
-			if (isStr) { char buf[4096]; if (!read_token_from_file(fp, buf, sizeof(buf))) strcpy(buf, ""); { Variable* v = ensure_var(vname, 1); if (v->str) free(v->str); v->str = strdup_c(buf); } }
-			else { char tok[256]; if (!read_token_from_file(fp, tok, sizeof(tok))) strcpy(tok, "0"); ensure_var(vname, 0)->num = atof(tok); }
-			return 0;
-		}
-		else if (lx.cur.type == T_LINE) {
-			lx_next(&lx);
-			if (lx.cur.type != T_HASH) { printf("ERROR: LINE INPUT needs #\n"); return -1; }
-			lx_next(&lx); if (lx.cur.type != T_NUMBER) { printf("ERROR: LINE INPUT # needs handle\n"); return -1; }
-			{
-				int handle = (int)lx.cur.number; FILE* fp; char vname[32];
-				lx_next(&lx); fp = file_from_handle(handle); if (!fp) { printf("ERROR: bad handle\n"); return -1; }
-				if (lx.cur.type == T_COMMA) lx_next(&lx);
-				if (lx.cur.type != T_IDENT || !is_string_var_name(lx.cur.text)) { printf("ERROR: LINE INPUT needs string var\n"); return -1; }
-				strncpy(vname, lx.cur.text, sizeof(vname) - 1); vname[sizeof(vname) - 1] = 0;
-				{ char buf[8192]; if (!read_line_from_file(fp, buf, sizeof(buf))) buf[0] = 0; { Variable* vs = ensure_var(vname, 1); if (vs->str) free(vs->str); vs->str = strdup_c(buf); } }
-			}
-			return 0;
-		}
-		else {
-			char vname[32]; int isStr;
-			if (lx.cur.type != T_IDENT) { printf("ERROR: INPUT needs var\n"); return -1; }
-			strncpy(vname, lx.cur.text, sizeof(vname) - 1); vname[sizeof(vname) - 1] = 0; isStr = is_string_var_name(vname);
-			{
-				Variable* v = ensure_var(vname, isStr); char buf[512];
-				printf("%s? ", vname); if (!fgets(buf, sizeof(buf), stdin)) strcpy(buf, "0\n"); trim(buf);
-				if (isStr) { if (v->str) free(v->str); v->str = strdup_c(buf); }
-				else { v->num = atof(buf); }
-			}
-			return 0;
-		}
-	}
+		cond = parse_rel(&lx);                  /* full boolean parsing incl. AND/OR/XOR */
 
-	/* IF <rel> THEN <line> */
-	if (lx.cur.type == T_IF)
-	{
-		int dest; double cond; lx_next(&lx); cond = parse_rel(&lx);
 		if (lx.cur.type != T_THEN) { printf("ERROR: THEN expected\n"); return -1; }
-		lx_next(&lx); if (lx.cur.type != T_NUMBER) { printf("ERROR: line number expected\n"); return -1; }
-		dest = (int)lx.cur.number; if (cond != 0.0) { *outJump = dest; return 1; } return 0;
+		lx_next(&lx);
+
+		/* if false, ignore trailing tokens in this statement */
+		if (cond == 0.0) return 0;
+
+		/* THEN <line>  */
+		if (lx.cur.type == T_NUMBER) {
+			*outJump = (int)lx.cur.number;
+			return 1;
+		}
+
+		/* THEN GOTO <line> */
+		if (lx.cur.type == T_GOTO) {
+			lx_next(&lx);
+			if (lx.cur.type != T_NUMBER) { printf("ERROR: line number expected\n"); return -1; }
+			*outJump = (int)lx.cur.number;
+			return 1;
+		}
+
+		/* THEN GOSUB <line> */
+		if (lx.cur.type == T_GOSUB) {
+			int nextLine = next_line_number_after(currentLine);
+			lx_next(&lx);
+			if (lx.cur.type != T_NUMBER) { printf("ERROR: line number expected\n"); return -1; }
+			if (nextLine < 0) { printf("ERROR: GOSUB at last line\n"); return -1; }
+			if (g_gosub_top >= MAX_STACK) { printf("ERROR: GOSUB stack overflow\n"); return -1; }
+			g_gosub_stack[g_gosub_top++] = nextLine;
+			*outJump = (int)lx.cur.number;
+			return 1;
+		}
+
+		printf("ERROR: line number expected\n");
+		return -1;
 	}
 
 	if (lx.cur.type == T_GOTO) { lx_next(&lx); if (lx.cur.type != T_NUMBER) { printf("ERROR: GOTO needs line\n"); return -1; } *outJump = (int)lx.cur.number; return 1; }
@@ -751,6 +660,42 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 						}
 						if (lx.cur.type == T_RPAREN) lx_next(&lx);
 					}
+					else if (_stricmp(srcname, "SEG$") == 0) {
+						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
+						{
+							const char* s = ""; int start = 1, len = 0;
+							if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
+							else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
+								Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
+							}
+							if (lx.cur.type == T_COMMA) { lx_next(&lx); start = (int)parse_rel(&lx); }
+							if (lx.cur.type == T_COMMA) { lx_next(&lx); len = (int)parse_rel(&lx); }
+							if (lx.cur.type == T_RPAREN) lx_next(&lx);
+							{
+								int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl; int l = len; if (l < 0) l = 0; if (i0 + l > sl) l = sl - i0;
+								char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1; memcpy(tmp, s + i0, l); tmp[l] = 0;
+								SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
+								sarray_set(sa, subs, nsubs, tmp);
+							}
+						}
+					}
+					else if (_stricmp(srcname, "TRM$") == 0) {
+						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
+						{
+							const char* s = ""; if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
+							else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
+								Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
+							}
+							if (lx.cur.type == T_RPAREN) lx_next(&lx);
+							{
+								size_t n = strlen(s), a = 0, b = n; while (a < b && isspace((unsigned char)s[a]))a++; while (b > a && isspace((unsigned char)s[b - 1]))b--;
+								char tmp[1024]; size_t l = b - a; if (l > sizeof(tmp) - 1) l = sizeof(tmp) - 1; memcpy(tmp, s + a, l); tmp[l] = 0;
+								SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
+								sarray_set(sa, subs, nsubs, tmp);
+							}
+						}
+					}
+
 					else if (lx.cur.type == T_LPAREN) {
 						int s2[MAX_DIMS], n2 = 0;
 						lx_next(&lx);
@@ -824,6 +769,40 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 					}
 					if (lx.cur.type == T_RPAREN) lx_next(&lx);
 				}
+				else if (_stricmp(sname, "SEG$") == 0) {
+					if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
+					{
+						const char* s = ""; int start = 1, len = 0;
+						if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
+						else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
+							Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
+						}
+						if (lx.cur.type == T_COMMA) { lx_next(&lx); start = (int)parse_rel(&lx); }
+						if (lx.cur.type == T_COMMA) { lx_next(&lx); len = (int)parse_rel(&lx); }
+						if (lx.cur.type == T_RPAREN) lx_next(&lx);
+						{
+							int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl; int l = len; if (l < 0) l = 0; if (i0 + l > sl) l = sl - i0;
+							char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1; memcpy(tmp, s + i0, l); tmp[l] = 0;
+							Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(tmp);
+						}
+					}
+				}
+				else if (_stricmp(sname, "TRM$") == 0) {
+					if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
+					{
+						const char* s = ""; if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
+						else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
+							Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
+						}
+						if (lx.cur.type == T_RPAREN) lx_next(&lx);
+						{
+							size_t n = strlen(s), a = 0, b = n; while (a < b && isspace((unsigned char)s[a]))a++; while (b > a && isspace((unsigned char)s[b - 1]))b--;
+							char tmp[1024]; size_t l = b - a; if (l > sizeof(tmp) - 1) l = sizeof(tmp) - 1; memcpy(tmp, s + a, l); tmp[l] = 0;
+							Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(tmp);
+						}
+					}
+				}
+
 				else if (lx.cur.type == T_LPAREN) {
 					int s2[MAX_DIMS], n2 = 0;
 					lx_next(&lx);
@@ -855,7 +834,4 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 	printf("ERROR: syntax at line %d\n", currentLine); return -1;
 
 }
-
-
-
 

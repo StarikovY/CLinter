@@ -368,7 +368,11 @@ int main(void)
 	char line[MAX_LINE_LEN];
 	memset(g_files, 0, sizeof(g_files));
 
-	printf("Linter - The interpreter of BASIC Programming language\n 		Yuri Starikov - 1986 - 2025.\n This version was written on C++\n Type HELP for help\nREADY.\n");
+	printf("Linter - The interpreter of BASIC Programming language\n");
+	printf("           Yuri Starikov - 1986 - 2025.\n");
+	printf("           This version was written on C++\n");
+	printf("Version: %s at %s\n", __DATE__, __TIME__);
+	printf("           Type HELP for help\nREADY.\n");
 
 	for (;;) {
 		printf("> ");
