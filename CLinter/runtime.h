@@ -8,6 +8,15 @@ extern "C" {
 
 #include <stdio.h>
 
+    /* Ctrl+C (SIGINT) support */
+#include <signal.h>
+
+extern volatile sig_atomic_t g_ctrlc_pressed; /* 0 = no, 1 = Ctrl+C pressed */
+extern int g_current_exec_line;               /* current BASIC line during RUN (-1 if none) */
+
+/* Call once at startup to install SIGINT handler */
+void install_sigint_handler(void);
+
 #define MAX_LINE_LEN    512
 #define MAX_PROG_LINES  2000
 #define MAX_VARS        1024

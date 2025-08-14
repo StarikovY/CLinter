@@ -7,6 +7,20 @@
 #include "parse.h"
 #include "wxecut.h"
 
+/* === Ctrl+C (SIGINT) support === */
+volatile sig_atomic_t g_ctrlc_pressed = 0;
+int g_current_exec_line = -1;
+
+static void on_sigint(int sig) {
+	(void)sig;
+	g_ctrlc_pressed = 1;
+}
+
+/* Install once at program start */
+void install_sigint_handler(void) {
+	signal(SIGINT, on_sigint);
+}
+
 /* --------- Globals --------- */
 ProgLine g_prog[MAX_PROG_LINES]; 
 int g_prog_count = 0;
@@ -338,8 +352,7 @@ static int exec_multi(const char* src, int duringRun, int currentLine, int* outJ
 static void run_program(void) {
 	int pcIndex = 0;
 
-	if (g_prog_count <= 0)
-	{
+	if (g_prog_count <= 0) {
 		printf("NO PROGRAM\n");
 		return;
 	}
@@ -350,54 +363,47 @@ static void run_program(void) {
 
 	while (pcIndex < g_prog_count) {
 		int curLine = g_prog[pcIndex].number;
-		const char* src = g_prog[pcIndex].text; 
+		const char* src = g_prog[pcIndex].text;
 		int code, jump = 0;
 
 		{
 			if (g_trace) printf("[TRACE] %d %s\n", curLine, src);
 
-			char tmp[MAX_LINE_LEN]; 
-			strncpy(tmp, src, sizeof(tmp) - 1); 
+			char tmp[MAX_LINE_LEN];
+			strncpy(tmp, src, sizeof(tmp) - 1);
 			tmp[sizeof(tmp) - 1] = 0; trim(tmp);
 
-			if (tmp[0] == 0) 
-			{ 
-				pcIndex++; 
-				continue; 
-			}
-			
-			{ 
-				Lexer lx; 
-				lx_init(&lx, tmp); 
-				lx_next(&lx); 
-				if (lx.cur.type == T_REM) 
-				{ 
-					pcIndex++; 
-					continue; 
-				} 
+			if (tmp[0] == 0) { pcIndex++; continue; }
+
+			{   /* skip REM lines */
+				Lexer lx; lx_init(&lx, tmp); lx_next(&lx);
+				if (lx.cur.type == T_REM) { pcIndex++; continue; }
 			}
 		}
-		
+
+		/* --- execute this line (can run multiple : or \ segments) --- */
 		code = exec_multi(src, 1, curLine, &jump);
 
-		if (code == 9) 
-			return;
-		else if (code < 0) 
-			return;
-		else if (code == 1) 
-		{
-			int idx = find_prog_index_by_line(jump); 
-			
-			if (idx < 0) 
-			{ 
-				printf("ERROR: Undefined line %d\n", jump); 
-				return; 
-			} 
+		/* --- Ctrl+C pressed during this line? break and report line --- */
+		if (g_ctrlc_pressed) {
+			g_ctrlc_pressed = 0;            /* reset the flag for next run */
+			printf("\nBREAK at line %d\n", curLine);
+			return;                         /* stop RUN, back to READY */
+		}
+
+		if (code == 9)       return;
+		else if (code < 0)   return;
+		else if (code == 1) {
+			int idx = find_prog_index_by_line(jump);
+			if (idx < 0) { printf("ERROR: Undefined line %d\n", jump); return; }
 			pcIndex = idx;
 		}
-		else pcIndex++;
+		else {
+			pcIndex++;
+		}
 	}
 }
+
 
 /* --------- UI --------- */
 static int starts_with_kw(const char* s, const char* kw) 
@@ -414,47 +420,119 @@ static int starts_with_kw(const char* s, const char* kw)
 	return 1; 
 }
 
-#ifdef old
-static void print_help(void) 
-{
-	printf("Commands: NEW, LIST [start [end]], RUN, SAVE/LOAD \"file\"\n");
-	printf("Variables: SAVEVARS/LOADVARS \"file\"\n");
-	printf("File I/O: OPEN \"name\" FOR INPUT|OUTPUT|APPEND AS #n; CLOSE [#n]; PRINT #n, ...; INPUT #n, var; LINE INPUT #n, var$\n");
-	printf("Statements: PRINT, INPUT, LET, IF <rel> THEN <line>, GOTO, GOSUB/RETURN, END/STOP, REM; FOR..NEXT\n");
-	printf("Relational ops: = <> < > <= >= (true=1, false=0)\n");
+int prog_load(const char* filename) {
+	FILE* fp = fopen(filename, "r");
+	if (!fp) return 0;
+
+	char buf[MAX_LINE_LEN];
+	while (fgets(buf, sizeof(buf), fp)) {
+		trim(buf);
+		if (buf[0] == 0) continue;
+
+		int ln = 0;
+		char* p = buf;
+		while (isdigit((unsigned char)*p)) {
+			ln = ln * 10 + (*p - '0');
+			p++;
+		}
+		while (*p == ' ') p++;
+		if (ln > 0)
+			prog_set_line(ln, (*p ? p : NULL));
+	}
+	fclose(fp);
+	return 1;
 }
-#endif
 
-
-int main(void) 
+int main(int argc, char* argv[])
 {
+	/* Install Ctrl+C (SIGINT) handler */
+	install_sigint_handler();
+
 	char line[MAX_LINE_LEN];
 	memset(g_files, 0, sizeof(g_files));
 
-	printf("Linter - The interpreter of BASIC Programming language\n");
-	printf("           Yuri Starikov - 1986 - 2025.\n");
-	printf("           This version was written on C++\n");
-	printf("           Version: %s at %s\n", __DATE__, __TIME__);
-	printf("           Type HELP for help\nREADY.\n");
-
-	for (;;) {
-		printf("> ");
-	
-		if (!fgets(line, sizeof(line), stdin)) break;
-		trim(line);
-		
-		if (line[0] == 0) continue;
-		if (starts_with_kw(line, "HELP")) { print_help(); continue; }
-		{
-			int ln = 0; char* p = line; while (isdigit((unsigned char)*p)) { ln = ln * 10 + (*p - '0'); p++; }
-			if (ln > 0) { while (*p == ' ') p++; if (*p == 0) prog_set_line(ln, NULL); else prog_set_line(ln, p); continue; }
+	/* ---- command-line args: [-T|--trace] [program.bas] ---- */
+	int autorun = 0;
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-T") == 0 || strcmp(argv[i], "--trace") == 0) {
+			g_trace = 1;                       /* TRACE ON at startup */
 		}
-		{
-			int code, jump = 0; if (starts_with_kw(line, "RUN")) { run_program(); continue; }
-			// code = exec_statement(line, 0, -1, &jump); if (code == 2) run_program();
-			code = exec_multi(line, 0, -1, &jump); if (code == 2) run_program();
+		else {
+			/* treat as a filename to load */
+			if (!prog_load(argv[i])) {
+				printf("ERROR: Could not load program file '%s'\n", argv[i]);
+				return 1;
+			}
+			autorun = 1;                       /* auto-run after banner */
 		}
 	}
+
+	/* ---- banner ---- */
+	if (autorun == 0)
+	{
+		printf("Linter - The interpreter of BASIC Programming language\n");
+		printf("           Yuri Starikov - 1986 - 2025.\n");
+		printf("           This version was written on C++\n");
+		printf("Version: %s at %s\n", __DATE__, __TIME__);
+		printf("           Type HELP for help\nREADY.\n");
+	}
+
+	/* ---- auto-run if a file was provided ---- */
+	if (autorun) {
+		run_program();
+		/* after run, exit */
+		return 0;
+	}
+
+	/* ---- interactive loop ---- */
+	for (;;) {
+		printf("> ");
+		if (!fgets(line, sizeof(line), stdin)) break;
+		trim(line);
+		if (line[0] == 0) continue;
+
+		/* Immediate HELP */
+		if (starts_with_kw(line, "HELP")) {
+			print_help();
+			continue;
+		}
+
+		/* Line entry: <number> <text>  (store/delete program line) */
+		{
+			int ln = 0;
+			char* p = line;
+			while (isdigit((unsigned char)*p)) { ln = ln * 10 + (*p - '0'); p++; }
+			if (ln > 0) {
+				while (*p == ' ') p++;
+				if (*p == 0) prog_set_line(ln, NULL);
+				else         prog_set_line(ln, p);
+				continue;
+			}
+		}
+
+		/* RUN command */
+		if (starts_with_kw(line, "RUN")) {
+			run_program();
+			continue;
+		}
+
+		/* Immediate (non-numbered) statements — execute ALL segments */
+		int jump = 0;
+		int code = exec_multi(line, /*duringRun=*/0, /*currentLine=*/-1, &jump);
+
+		/* Optional: break immediate mode on Ctrl+C */
+		if (g_ctrlc_pressed) {
+			g_ctrlc_pressed = 0;
+			printf("\nBREAK\n");
+			continue;
+		}
+
+		if (code == 2) {
+			/* if your exec_statement/exec_multi uses 2 to mean “RUN” */
+			run_program();
+		}
+	}
+
 	files_clear();
 	return 0;
 }
