@@ -246,6 +246,7 @@ void cmd_list(int startGiven, int start, int endGiven, int end) {
 
 /* Execute multiple statements on one physical line.
    Split on ':' or '\' unless inside a quoted string. */
+#ifdef OLD
 static int exec_multi(const char* src, int duringRun, int currentLine, int* outJump)
 {
 	char seg[MAX_LINE_LEN];
@@ -278,7 +279,61 @@ static int exec_multi(const char* src, int duringRun, int currentLine, int* outJ
 	}
 	return 0;
 }
+#else
 
+static int exec_multi(const char* src, int duringRun, int currentLine, int* outJump) {
+	const char* p = src;
+	int result = 0;
+
+	while (*p) {
+		// skip leading spaces/tabs
+		while (*p && isspace((unsigned char)*p))
+			p++;
+
+		// mark start of this sub-statement
+		const char* stmt_start = p;
+
+		// find next ':' or '\' separator (not inside quotes)
+		int in_str = 0;
+		while (*p) {
+			if (*p == '"' && (p == stmt_start || *(p - 1) != '\\'))
+				in_str = !in_str;
+			if (!in_str && (*p == ':' || *p == '\\'))
+				break;
+			p++;
+		}
+
+		// copy this sub-statement into buffer
+		size_t len = p - stmt_start;
+		if (len > 0) {
+			char buf[1024];
+			if (len >= sizeof(buf)) len = sizeof(buf) - 1;
+			memcpy(buf, stmt_start, len);
+			buf[len] = '\0';
+
+			int r = exec_statement(buf, duringRun, currentLine, outJump);
+			if (r != 0) { // stop on jump/quit
+				result = r;
+				break;
+			}
+		}
+
+		// if separator found, skip it and loop for next statement
+		if (*p == ':' || *p == '\\') {
+			p++;
+			continue;
+		}
+
+		// otherwise, end of line
+		break;
+	}
+
+	return result;
+}
+
+
+
+#endif //OLD
 /* --------- Runner --------- */
 static void run_program(void) {
 	int pcIndex = 0;
@@ -379,7 +434,7 @@ int main(void)
 	printf("Linter - The interpreter of BASIC Programming language\n");
 	printf("           Yuri Starikov - 1986 - 2025.\n");
 	printf("           This version was written on C++\n");
-	printf("Version: %s at %s\n", __DATE__, __TIME__);
+	printf("           Version: %s at %s\n", __DATE__, __TIME__);
 	printf("           Type HELP for help\nREADY.\n");
 
 	for (;;) {
@@ -396,7 +451,8 @@ int main(void)
 		}
 		{
 			int code, jump = 0; if (starts_with_kw(line, "RUN")) { run_program(); continue; }
-			code = exec_statement(line, 0, -1, &jump); if (code == 2) run_program();
+			// code = exec_statement(line, 0, -1, &jump); if (code == 2) run_program();
+			code = exec_multi(line, 0, -1, &jump); if (code == 2) run_program();
 		}
 	}
 	files_clear();

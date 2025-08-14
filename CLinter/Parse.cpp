@@ -41,6 +41,14 @@ void lx_next(Lexer* lx) {
     lx_skip_space(lx);
     if (!lx->s[lx->i]) { lx->cur.type = T_END; lx->cur.text[0] = 0; return; }
 
+    /* NEW: treat ':' and '\' as end-of-statement markers for this segment.
+       Do NOT consume them here; exec_multi in main.cpp will split on them. */
+    if (lx->s[lx->i] == ':' || lx->s[lx->i] == '\\') {
+        lx->cur.type = T_END;
+        lx->cur.text[0] = 0;
+        return;
+    }
+
     /* two-char relational operators */
     if (lx->s[lx->i] && lx->s[lx->i + 1]) {
         if (lx->s[lx->i] == '<' && lx->s[lx->i + 1] == '>') { lx->i += 2; lx->cur.type = T_NE; return; }
