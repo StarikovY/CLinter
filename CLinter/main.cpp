@@ -36,10 +36,10 @@ int g_trace = 0;
 
 char* strdup_c(const char* s) { size_t n = strlen(s); char* p = (char*)malloc(n + 1); if (p) memcpy(p, s, n + 1); return p; }
 char* trim(char* s) { char* a = s, * b = s + strlen(s); while (a < b && isspace((unsigned char)*a))++a; while (b > a && isspace((unsigned char)b[-1]))--b; memmove(s, a, (size_t)(b - a)); s[b - a] = '\0'; return s; }
-static int cmp_lines(const void* a, const void* b) { const ProgLine* pa = (const ProgLine*)a; const ProgLine* pb = (const ProgLine*)b; return (pa->line > pb->line) - (pa->line < pb->line); }
+static int cmp_lines(const void* a, const void* b) { const ProgLine* pa = (const ProgLine*)a; const ProgLine* pb = (const ProgLine*)b; return (pa->number > pb->number) - (pa->number < pb->number); }
 void sort_program(void) { qsort(g_prog, (size_t)g_prog_count, sizeof(ProgLine), cmp_lines); }
-int find_prog_index_by_line(int line) { int lo = 0, hi = g_prog_count - 1; while (lo <= hi) { int mid = (lo + hi) / 2; if (g_prog[mid].line == line) return mid; if (g_prog[mid].line < line) lo = mid + 1; else hi = mid - 1; } return -1; }
-int next_line_number_after(int current) { int i; sort_program(); for (i = 0; i < g_prog_count; i++) { if (g_prog[i].line > current) return g_prog[i].line; } return -1; }
+int find_prog_index_by_line(int line) { int lo = 0, hi = g_prog_count - 1; while (lo <= hi) { int mid = (lo + hi) / 2; if (g_prog[mid].number == line) return mid; if (g_prog[mid].number < line) lo = mid + 1; else hi = mid - 1; } return -1; }
+int next_line_number_after(int current) { int i; sort_program(); for (i = 0; i < g_prog_count; i++) { if (g_prog[i].number > current) return g_prog[i].number; } return -1; }
 Variable* find_var(const char* name) { int i; for (i = 0; i < g_var_count; i++) { if (_stricmp(g_vars[i].name, name) == 0) return &g_vars[i]; } return NULL; }
 int is_string_var_name(const char* name) { size_t n = strlen(name); return n > 0 && name[n - 1] == '$'; }
 Variable* ensure_var(const char* name, int isStr) { Variable* v = find_var(name); if (!v) { if (g_var_count >= MAX_VARS) return NULL; v = &g_vars[g_var_count++]; memset(v, 0, sizeof(*v)); strncpy(v->name, name, sizeof(v->name) - 1); v->type = isStr ? VT_STR : VT_NUM; v->num = 0.0; } else { v->type = isStr ? VT_STR : VT_NUM; } return v; }
@@ -186,11 +186,16 @@ void prog_set_line(int line, const char* text) {
 			return;
 		}
 
-		g_prog[g_prog_count].line = line;
+		g_prog[g_prog_count].number = line;
 		g_prog[g_prog_count].text = strdup_c(text);
+		
+		if (!g_prog_head) {
+			g_prog_head = &g_prog[g_prog_count];   // initialize head
+		}		
 		g_prog_count++;
 		sort_program();
 	}
+	data_mark_dirty();
 }
 
 void prog_clear(void)
@@ -234,9 +239,9 @@ void files_clear(void)
 
 void cmd_list(int startGiven, int start, int endGiven, int end) {
 	int i; sort_program();
-	if (!startGiven) { for (i = 0; i < g_prog_count; i++) printf("%d %s\n", g_prog[i].line, g_prog[i].text); return; }
-	if (startGiven && !endGiven) { for (i = 0; i < g_prog_count; i++) if (g_prog[i].line >= start) printf("%d %s\n", g_prog[i].line, g_prog[i].text); return; }
-	for (i = 0; i < g_prog_count; i++) if (g_prog[i].line >= start && g_prog[i].line <= end) printf("%d %s\n", g_prog[i].line, g_prog[i].text);
+	if (!startGiven) { for (i = 0; i < g_prog_count; i++) printf("%d %s\n", g_prog[i].number, g_prog[i].text); return; }
+	if (startGiven && !endGiven) { for (i = 0; i < g_prog_count; i++) if (g_prog[i].number >= start) printf("%d %s\n", g_prog[i].number, g_prog[i].text); return; }
+	for (i = 0; i < g_prog_count; i++) if (g_prog[i].number >= start && g_prog[i].number <= end) printf("%d %s\n", g_prog[i].number, g_prog[i].text);
 }
 
 /* Execute multiple statements on one physical line.
@@ -289,7 +294,7 @@ static void run_program(void) {
 	g_gosub_top = 0;
 
 	while (pcIndex < g_prog_count) {
-		int curLine = g_prog[pcIndex].line; 
+		int curLine = g_prog[pcIndex].number;
 		const char* src = g_prog[pcIndex].text; 
 		int code, jump = 0;
 
@@ -354,6 +359,7 @@ static int starts_with_kw(const char* s, const char* kw)
 	return 1; 
 }
 
+#ifdef old
 static void print_help(void) 
 {
 	printf("Commands: NEW, LIST [start [end]], RUN, SAVE/LOAD \"file\"\n");
@@ -362,6 +368,8 @@ static void print_help(void)
 	printf("Statements: PRINT, INPUT, LET, IF <rel> THEN <line>, GOTO, GOSUB/RETURN, END/STOP, REM; FOR..NEXT\n");
 	printf("Relational ops: = <> < > <= >= (true=1, false=0)\n");
 }
+#endif
+
 
 int main(void) 
 {

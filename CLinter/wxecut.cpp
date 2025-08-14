@@ -35,6 +35,31 @@ static int    g_data_count = 0;
 static int    g_data_ptr = 0;
 static int    g_data_built = 0;
 
+/* Example structure: adjust names to your existing ones */
+// extern int g_data_index;  /* current read index */
+// extern int g_data_count;
+
+/* new (minimal) */
+static int* g_data_lines = NULL;   /* line number for each DATA item */
+static int    g_data_cap = 0;      /* shared capacity for vals/lines */
+
+static void data_ensure_cap(int need) {
+	if (need <= g_data_cap) return;
+	int newcap = g_data_cap ? g_data_cap * 2 : 64;
+	while (newcap < need) newcap *= 2;
+
+	char** nv = (char**)realloc(g_data_vals, newcap * sizeof(char*));
+	int* nl = (int*)realloc(g_data_lines, newcap * sizeof(int));
+	if (!nv || !nl) { /* handle OOM simply */
+		fprintf(stderr, "ERROR: out of memory in DATA table\n");
+		exit(1);
+	}
+	g_data_vals = nv;
+	g_data_lines = nl;
+	g_data_cap = newcap;
+}
+
+g_trace_enabled = 0; 
 static void data_clear(void) {
     int i;
     if (g_data_vals) {
@@ -193,6 +218,178 @@ static char* renum_rewrite_stmt(const char* src, const int* oldL, const int* new
 #undef APPEND_STR
 	return strdup_c(outbuf);
 }
+/* ===== Variable helper implementations (minimal) =====
+   These provide simple creation/assignment for numeric and string vars.
+   They rely on:
+	 - Variable { name[], int type; double num; char* str; }  (from runtime.h)
+	 - VT_NUM / VT_STR enum values
+	 - ensure_var(const char* name, int isString) -> Variable*
+*/
+
+static char* dup_cstr(const char* s) {
+	if (!s) s = "";
+	size_t n = strlen(s) + 1;
+	char* p = (char*)malloc(n);
+	if (p) memcpy(p, s, n);
+	return p;
+}
+
+Variable* create_string_var(const char* name) {
+	/* ensure var exists and is marked as string */
+	Variable* v = ensure_var(name, 1);
+	if (!v) return NULL;
+	if (v->type != VT_STR) {
+		if (v->str) { free(v->str); v->str = NULL; }
+		v->type = VT_STR;
+	}
+	if (!v->str) { v->str = dup_cstr(""); }
+	return v;
+}
+
+void set_string_var(Variable* v, const char* s) {
+	if (!v) return;
+	if (v->type != VT_STR) {
+		if (v->str) { free(v->str); v->str = NULL; }
+		v->type = VT_STR;
+	}
+	if (v->str) { free(v->str); v->str = NULL; }
+	v->str = dup_cstr(s);
+}
+
+Variable* create_numeric_var(const char* name) {
+	/* ensure var exists and is marked as numeric */
+	Variable* v = ensure_var(name, 0);
+	if (!v) return NULL;
+	v->type = VT_NUM;
+	v->num = 0.0;
+	if (v->str) { free(v->str); v->str = NULL; }
+	return v;
+}
+
+void set_numeric_var(Variable* v, double val) {
+	if (!v) return;
+	v->type = VT_NUM;
+	v->num = val;
+	if (v->str) { free(v->str); v->str = NULL; }
+}
+
+
+/* Execute one assignment statement:
+   Accepts either:  LET <var>[subs...] = <expr>
+			   or:  <var>[subs...] = <expr>
+   Returns 0 on success, -1 on error.  Consumes the whole assignment. */
+static int exec_assignment(Lexer* lx) {
+	/* If your top-level code already handles both LET and implicit assignment,
+	   just paste that code here and replace any 'return' with 'return 0' on success.
+	   The function must:
+		 - accept T_LET (optional) or T_IDENT as the first token
+		 - support string/numeric scalars and arrays as you already do
+		 - parse '=' and RHS using your existing expression functions
+	*/
+
+	/* ---------- START: paste your existing assignment logic ---------- */
+	/* Example skeleton (replace with your real code): */
+	if (lx->cur.type == T_LET) lx_next(lx);
+
+	if (lx->cur.type != T_IDENT) { printf("ERROR: variable expected\n"); return -1; }
+	char name[64]; strncpy(name, lx->cur.text, sizeof(name) - 1); name[sizeof(name) - 1] = 0;
+	int isStr = is_string_var_name(name);
+	lx_next(lx);
+
+	/* optional array subscripts */
+	int subs[MAX_DIMS], nsubs = 0;
+	int isArray = 0;
+	if (lx->cur.type == T_LPAREN) {
+		isArray = 1; lx_next(lx);
+		while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
+			if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); return -1; }
+			subs[nsubs++] = (int)parse_rel(lx);
+			if (lx->cur.type == T_COMMA) { lx_next(lx); continue; }
+			else break;
+		}
+		if (lx->cur.type == T_RPAREN) lx_next(lx);
+	}
+
+	if (lx->cur.type != T_EQ) { printf("ERROR: '=' expected\n"); return -1; }
+	lx_next(lx);
+
+	if (isStr) {
+		/* Minimal RHS: string literal or string var/array; otherwise numeric->string */
+		const char* ssrc = NULL;
+		char tmp[1024]; tmp[0] = 0;
+
+		if (lx->cur.type == T_STRING) { ssrc = lx->cur.text; lx_next(lx); }
+		else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+			/* copy from existing string var/array element */
+			char rhsn[64]; strncpy(rhsn, lx->cur.text, sizeof(rhsn) - 1); rhsn[sizeof(rhsn) - 1] = 0; lx_next(lx);
+			if (lx->cur.type == T_LPAREN) {
+				int rsubs[MAX_DIMS], rn = 0; SArray* sa = sarray_find(rhsn);
+				lx_next(lx);
+				while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
+					if (rn >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); return -1; }
+					rsubs[rn++] = (int)parse_rel(lx);
+					if (lx->cur.type == T_COMMA) { lx_next(lx); continue; }
+					else break;
+				}
+				if (lx->cur.type == T_RPAREN) lx_next(lx);
+				ssrc = sa ? sarray_get(sa, rsubs, rn) : "";
+			}
+			else {
+				Variable* rv = find_var(rhsn);
+				ssrc = (rv && rv->type == VT_STR && rv->str) ? rv->str : "";
+			}
+		}
+		else {
+			/* fallback: numeric expr -> string */
+			double v = parse_rel(lx);
+#ifdef _MSC_VER
+			_snprintf(tmp, sizeof(tmp), "%.15g", v);
+#else
+			snprintf(tmp, sizeof(tmp), "%.15g", v);
+#endif
+			ssrc = tmp;
+		}
+
+		if (isArray) {
+			SArray* sa = sarray_find(name);
+			if (!sa) { printf("ERROR: UNDIM'D STRING ARRAY %s\n", name); return -1; }
+			sarray_set(sa, subs, nsubs, ssrc);
+		}
+		else {
+			Variable* v = find_var(name);
+			if (!v) { v = create_string_var(name); }           /* use your own creator */
+			set_string_var(v, ssrc);                         /* or inline: free/strdup into v->str, set v->type=VT_STR */
+		}
+		return 0;
+	}
+	else {
+		double val = parse_rel(lx);
+
+		if (isArray) {
+			Array* a = array_find(name);
+			if (!a) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
+			array_set(a, subs, nsubs, val);
+		}
+		else {
+			Variable* v = find_var(name);
+			if (!v) { v = create_numeric_var(name); }          /* use your own creator */
+			set_numeric_var(v, val);                         /* or inline: v->type=VT_NUM; v->num=val; free v->str if any */
+		}
+		return 0;
+	}
+	/* ---------- END: paste your existing assignment logic ---------- */
+}
+
+
+// EOF
+double fn_eof(int fileno) {
+	if (fileno < 0 || fileno >= MAX_FILES || !g_files[fileno].used || g_files[fileno].fp == NULL)
+		return -1; // invalid file number
+	int c = fgetc(g_files[fileno].fp);
+	if (c == EOF) return -1;
+	ungetc(c, g_files[fileno].fp);
+	return 0;
+}
 
 /* ----------------- executor ----------------- */
 int exec_statement(const char* src, int duringRun, int currentLine, int* outJump)
@@ -219,7 +416,48 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		g_gosub_top = 0;
 		files_clear();
 		data_clear();
+		data_mark_dirty();    /* program is empty now; table is stale */
 		printf("NEW PROGRAM\n");
+		return 0;
+	}
+
+	/* ON <expr> GOTO <l1>[,l2,...]   or   ON <expr> GOSUB <l1>[,l2,...] */
+/* ON <expr> GOTO l1[,l2,...]   |   ON <expr> GOSUB l1[,l2,...] */
+	if (lx.cur.type == T_ONKW) {
+		lx_next(&lx);
+		int n = (int)parse_rel(&lx);  // 1-based index
+		int is_gosub = 0;
+
+		if (lx.cur.type == T_GOTO) { is_gosub = 0; lx_next(&lx); }
+		else if (lx.cur.type == T_GOSUB) { is_gosub = 1; lx_next(&lx); }
+		else { printf("ERROR: expected GOTO or GOSUB\n"); return -1; }
+
+		int lines[64], count = 0;
+		while (lx.cur.type == T_NUMBER && count < (int)(sizeof(lines) / sizeof(lines[0]))) {
+			lines[count++] = (int)lx.cur.number;
+			lx_next(&lx);
+			if (lx.cur.type == T_COMMA) { lx_next(&lx); continue; }
+			else break;
+		}
+		if (count == 0) { printf("ERROR: line list expected\n"); return -1; }
+
+		if (n >= 1 && n <= count) {
+			int target = lines[n - 1];
+			if (is_gosub) {
+				int nextLine = next_line_number_after(currentLine);
+				if (nextLine < 0) { printf("ERROR: GOSUB at last line\n"); return -1; }
+				if (g_gosub_top >= MAX_STACK) { printf("ERROR: GOSUB stack overflow\n"); return -1; }
+				g_gosub_stack[g_gosub_top++] = nextLine;
+			}
+			*outJump = target;
+			return 1;
+		}
+		return 0; // out-of-range index -> no jump
+	}
+
+	if (lx.cur.type == T_HELP) {
+		lx_next(&lx);   /* no args */
+		print_help();
 		return 0;
 	}
 
@@ -271,10 +509,11 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 				if (fgets(linebuf, sizeof(linebuf), f)) { char* p = linebuf; if (*p == ' ') p++; trim(p); prog_set_line(ln, p); }
 			}
 			fclose(f); printf("Loaded %s (%d lines)\n", fname, g_prog_count); return 0;
+			data_rebuild_from_program();   /* program just changed -> rebuild DATA table */
 		}
 		else {
 			FILE* f = fopen(fname, "wb"); int i; if (!f) { printf("ERROR: cannot write file %s\n", fname); return -1; }
-			sort_program(); for (i = 0; i < g_prog_count; i++) fprintf(f, "%d %s\n", g_prog[i].line, g_prog[i].text);
+			sort_program(); for (i = 0; i < g_prog_count; i++) fprintf(f, "%d %s\n", g_prog[i].number, g_prog[i].text);
 			fclose(f); printf("Saved to %s\n", fname); return 0;
 		}
 	}
@@ -376,7 +615,7 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		if (!oldL || !newL) { printf("ERROR: OUT OF MEMORY\n"); if (oldL)free(oldL); if (newL)free(newL); return -1; }
 
 		for (i = 0; i < g_prog_count; i++) {
-			oldL[i] = g_prog[i].line;
+			oldL[i] = g_prog[i].number;
 			newL[i] = start + i * step;
 		}
 
@@ -391,12 +630,13 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 
 		/* Apply new line numbers */
 		for (i = 0; i < g_prog_count; i++) {
-			g_prog[i].line = newL[i];
+			g_prog[i].number = newL[i];
 		}
 
 		free(oldL); free(newL);
 		sort_program();
 		printf("RENUM OK (start=%d, step=%d)\n", start, step);
+		data_mark_dirty();
 		return 0;
 	}
 
@@ -405,19 +645,30 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		return exec_print(&lx);
 	}
 
-	/* IF <cond> THEN [GOTO|GOSUB] <line> */
+	/* IF <cond> THEN
+		  <line>
+		| GOTO <line>
+		| GOSUB <line>
+		| <single statement>   (e.g., LET X=1 or X=1 or PRINT ... )
+	*/
+	/* IF <cond> THEN
+		 <line>
+	   | GOTO <line>
+	   | GOSUB <line>
+	   | <single statement>  (PRINT …, LET …, or <ident>=…)
+	*/
 	if (lx.cur.type == T_IF) {
 		double cond;
 		lx_next(&lx);
-		cond = parse_rel(&lx);                  /* full boolean parsing incl. AND/OR/XOR */
+		cond = parse_rel(&lx);
 
 		if (lx.cur.type != T_THEN) { printf("ERROR: THEN expected\n"); return -1; }
 		lx_next(&lx);
 
-		/* if false, ignore trailing tokens in this statement */
+		/* false: skip remainder of this statement segment */
 		if (cond == 0.0) return 0;
 
-		/* THEN <line>  */
+		/* THEN <line> */
 		if (lx.cur.type == T_NUMBER) {
 			*outJump = (int)lx.cur.number;
 			return 1;
@@ -443,9 +694,20 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 			return 1;
 		}
 
-		printf("ERROR: line number expected\n");
+		/* THEN <single statement> */
+		if (lx.cur.type == T_PRINT) {
+			return exec_print(&lx);
+		}
+		if (lx.cur.type == T_LET || lx.cur.type == T_IDENT) {
+			return exec_assignment(&lx);
+		}
+
+		/* You can add more single-statement cases later (e.g., INPUT, OPEN, CLOSE). */
+		printf("ERROR: unsupported statement after THEN\n");
 		return -1;
 	}
+
+
 
 	if (lx.cur.type == T_GOTO) { lx_next(&lx); if (lx.cur.type != T_NUMBER) { printf("ERROR: GOTO needs line\n"); return -1; } *outJump = (int)lx.cur.number; return 1; }
 
@@ -499,12 +761,21 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 	}
 
 	// TRACE ON/OFF
-	if (lx.cur.type == T_TRACE)
-	{
+/* TRACE ON|OFF */
+	if (lx.cur.type == T_TRACE) {
 		lx_next(&lx);
-		if (lx.cur.type == T_ON) { g_trace = 1; return 0; }
-		if (lx.cur.type == T_OFF) { g_trace = 0; return 0; }
-		printf("ERROR Line %d: TRACE ON|OFF\n", currentLine); return -1;
+		int on = 1;  // default to ON if omitted
+		if (lx.cur.type == T_IDENT) {
+			char up[8]; strncpy(up, lx.cur.text, 7); up[7] = 0;
+			for (int i = 0; up[i]; ++i) up[i] = (char)toupper((unsigned char)up[i]);
+			if (!strcmp(up, "ON"))  on = 1;
+			else if (!strcmp(up, "OFF")) on = 0;
+			else { printf("ERROR: TRACE expects ON or OFF\n"); return -1; }
+			lx_next(&lx);
+		}
+		g_trace_enabled = on;
+		printf("TRACE %s\n", on ? "ON" : "OFF");
+		return 0;
 	}
 
 	/* Handle DIM (numeric + string arrays) */
@@ -538,18 +809,25 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		return 0;
 	}
 
-	if (lx.cur.type == T_RESTORE)
-	{
-		/* BASIC RESTORE resets the DATA pointer to the start */
-		if (!g_data_built) data_build_from_program(); /* ok if already built */
-		g_data_ptr = 0;
+	if (lx.cur.type == T_RESTORE) {
+		lx_next(&lx);
+		data_maybe_rebuild();   /* if never built or program changed, build now */
+
+		if (lx.cur.type == T_NUMBER) {
+			int ln = (int)lx.cur.number;
+			lx_next(&lx);
+			data_restore_at_line(ln);
+		}
+		else {
+			data_restore();
+		}
 		return 0;
 	}
 
 	if (lx.cur.type == T_READ)
 	{
 		/* Lazily build DATA pool on first READ */
-		if (!g_data_built) data_build_from_program();
+		data_maybe_rebuild();   /* if never built or program changed, build now */
 
 		for (;;) {
 			lx_next(&lx);

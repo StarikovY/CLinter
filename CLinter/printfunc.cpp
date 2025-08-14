@@ -14,6 +14,8 @@
 #include "parse.h"
 #include "printfunc.h"
 
+int g_print_col = 0;   /* 0-based column */
+
 /* ---- local helpers (binary-safe buffer) ---- */
 typedef struct {
     unsigned char* data;
@@ -184,6 +186,7 @@ int exec_print(Lexer* lx) {
         if (lx->cur.type == T_IDENT) {
             char id[16]; strncpy(id, lx->cur.text, sizeof(id) - 1); id[sizeof(id) - 1] = 0;
             if (_stricmp(id, "TAB") == 0) {
+#ifdef OLD
                 lx_next(lx);
                 if (lx->cur.type == T_LPAREN) lx_next(lx);
                 { int n = (int)parse_rel(lx); if (n < 0) n = 0; while (n--) fputc(' ', out); }
@@ -191,6 +194,13 @@ int exec_print(Lexer* lx) {
                 if (lx->cur.type == T_COMMA || lx->cur.type == T_SEMI) { suppress_nl = 1; lx_next(lx); }
                 if (lx->cur.type == T_END) break;
                 continue;
+#else
+                /* TAB to absolute column n (1-based); clamp at current if n <= current */
+                int n = (int)parse_rel(lx);
+                if (n < 1) n = 1;
+                int target = n - 1;               /* convert to 0-based */
+                while (g_print_col < target) { fputc(' ', out); g_print_col++; }
+#endif //OLD
             }
         }
 
@@ -222,19 +232,41 @@ int exec_print(Lexer* lx) {
         }
 
         /* emit the item (binary-safe) */
-        if (L.len) fwrite(L.data, 1, L.len, out);
+        if (L.len) {
+            /* write and update column */
+            for (size_t i = 0; i < L.len; i++) {
+                unsigned char c = L.data[i];
+                fputc((char)c, out);
+                if (c == '\n') { g_print_col = 0; }
+                else if (c == '\r') { g_print_col = 0; }
+                else { g_print_col++; }
+                suppress_nl = 0;
+            }
+        }
 
         /* optional separator suppresses trailing newline */
-        if (lx->cur.type == T_COMMA || lx->cur.type == T_SEMI) {
+        if (lx->cur.type == T_COMMA) {
+            suppress_nl = 1;
+            lx_next(lx);
+            /* advance to next zone boundary */
+            int nextZone = ((g_print_col / PRINT_ZONE) + 1) * PRINT_ZONE;
+            while (g_print_col < nextZone) { fputc(' ', out); g_print_col++; }
+            if (lx->cur.type == T_END) break;
+            continue;
+        }
+
+        if (lx->cur.type == T_SEMI) {
             suppress_nl = 1;
             lx_next(lx);
             if (lx->cur.type == T_END) break;
             continue;
         }
 
+
         if (lx->cur.type == T_END) break;
     }
 
-    if (!suppress_nl) fputc('\n', out);
+    if (!suppress_nl) { fputc('\n', out); g_print_col = 0; }
+
     return 0;
 }

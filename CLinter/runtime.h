@@ -17,7 +17,16 @@ extern "C" {
 typedef enum { VT_NUM=0, VT_STR=1 } VarType;
 
 typedef struct { char name[32]; VarType type; double num; char *str; } Variable;
-typedef struct { int line; char *text; } ProgLine;
+// typedef struct { int line; char *text; } ProgLine;
+
+/* ---- Program storage (adjust names/types if yours differ) ---- */
+typedef struct ProgLine {
+    int number;
+    char* text;     /* text after the line number */
+    struct ProgLine* next;
+} ProgLine;
+
+extern ProgLine* g_prog_head;
 
 /* Tokenizer/Parser shared types */
 typedef enum {
@@ -29,7 +38,7 @@ typedef enum {
     T_HASH, T_LINE, T_DIM,
     T_EQ, T_NE, T_LT, T_GT, T_LE, T_GE, T_AND, T_OR, T_XOR, T_NOT,
     T_PLUS, T_MINUS, T_STAR, T_SLASH, T_LPAREN, T_RPAREN, T_COMMA, T_SEMI, T_POWOP,
-    T_DATA, T_READ, T_RESTORE, T_TRACE, T_ON, T_OFF, T_DUMP, T_VARS, T_ARRAYS, T_STACK, T_QUIT, T_RENUM, T_BYE
+    T_DATA, T_READ, T_RESTORE, T_TRACE, T_ON, T_OFF, T_ONKW, T_DUMP, T_VARS, T_ARRAYS, T_STACK, T_QUIT, T_RENUM, T_BYE, T_HELP
 } TokType;
 
 /* +++ ARRAYS +++ */
@@ -45,6 +54,12 @@ typedef struct {
 
 extern Array g_arrays[MAX_ARRAYS];
 extern int   g_array_count;
+
+/* current console print column (0-based); maintained by printfunc.cpp */
+extern int g_print_col;
+
+/* optional: zone width (RT-11 BASIC commonly used 14) */
+#define PRINT_ZONE 14
 
 /* array helpers (implemented in main.cpp) */
 Array* array_find(const char* name);
@@ -67,7 +82,7 @@ typedef struct {
 extern SArray g_sarrays[MAX_SARRAYS];
 extern int    g_sarray_count;
 
-extern int g_trace;
+extern int g_trace_enabled;
 
 
 /* string array helpers (implemented in main.cpp) */
@@ -115,6 +130,19 @@ void vars_clear(void);
 void files_clear(void);
 void cmd_list(int startGiven,int start,int endGiven,int end);
 
+double fn_eof(int fileno);
+void print_help(void);
+
+/* DATA table API */
+void data_rebuild_from_program(void);
+void data_restore(void);
+void data_restore_at_line(int line);
+/* optional */
+int  data_read_next(char* dst, size_t cap);
+
+/* Small convenience helpers */
+void data_mark_dirty(void);                /* mark table stale (program changed) */
+void data_maybe_rebuild(void);             /* if not built, rebuild now (lazy) */
 
 #ifdef __cplusplus
 }

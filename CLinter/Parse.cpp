@@ -23,6 +23,8 @@
 #include "runtime.h"
 #include "parse.h"
 
+extern int g_print_col;  /* from printfunc.cpp */
+
 /* --- Lexer --- */
 static void lx_skip_space(Lexer*lx){ while(lx->s[lx->i] && isspace((unsigned char)lx->s[lx->i])) lx->i++; }
 
@@ -103,7 +105,7 @@ void lx_next(Lexer* lx) {
             if (!strcmp(u, "READ")) { lx->cur.type = T_READ; return; }
             if (!strcmp(u, "RESTORE")) { lx->cur.type = T_RESTORE; return; }
             if (!strcmp(u, "TRACE")) { lx->cur.type = T_TRACE; return; }
-            if (!strcmp(u, "ON")) { lx->cur.type = T_ON; return; }
+            if (!strcmp(u, "ON")) { lx->cur.type = T_ONKW; return; }
             if (!strcmp(u, "OFF")) { lx->cur.type = T_OFF; return; }
             if (!strcmp(u, "DUMP")) { lx->cur.type = T_DUMP; return; }
             if (!strcmp(u, "VARS")) { lx->cur.type = T_VARS; return; }
@@ -118,7 +120,8 @@ void lx_next(Lexer* lx) {
             if (!strcmp(u, "OR")) { lx->cur.type = T_OR;  return; }
             if (!strcmp(u, "XOR")) { lx->cur.type = T_XOR; return; }
             if (!strcmp(u, "NOT")) { lx->cur.type = T_NOT; return; }
-
+            if (!strcmp(u, "HELP")) { lx->cur.type = T_HELP; return; }
+            
             /* default ident */
             lx->cur.type = T_IDENT; strncpy(lx->cur.text, t, sizeof(lx->cur.text) - 1); lx->cur.text[sizeof(lx->cur.text) - 1] = 0; return;
         }
@@ -301,6 +304,15 @@ static double parse_factor(Lexer* lx) {
             }
         }
 
+        /* EOF(n) -> -1 at end of file (or invalid), 0 otherwise */
+        if (!strcmp(fname, "EOF")) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) lx_next(lx);
+            double v = parse_rel(lx);          /* channel number */
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return fn_eof((int)v);
+        }
+
         /* NOTE: CHR$ and STR$ return strings; in numeric context they coerce via atof(""). */
         if (!strcmp(fname, "CHR$")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
@@ -319,6 +331,7 @@ static double parse_factor(Lexer* lx) {
         }
 
         /* POS(hay$, needle$) -> 1-based index (0 if not found) */
+#ifdef OLD
         if (!strcmp(fname, "POS")) {
             char* p1 = NULL, * p2=NULL;
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
@@ -365,7 +378,84 @@ static double parse_factor(Lexer* lx) {
                 }
             }
         }
+#else
+        /* POS() -> current print column (1-based) */
+        if (!strcmp(fname, "POS")) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) {
+                lx_next(lx);
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+            }
+            return (double)(g_print_col + 1);
+        }
 
+        /* INSTR(hay$, needle$) -> 1-based index (0 if not found) */
+        if (!strcmp(fname, "INSTR")) {
+#ifdef CHATGPT
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            const char* hay = "", * nee = "";
+            if (lx->cur.type == T_STRING) { hay = lx->cur.text; lx_next(lx); }
+            else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                Variable* v = find_var(lx->cur.text); hay = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+            }
+            if (lx->cur.type == T_COMMA) lx_next(lx);
+            if (lx->cur.type == T_STRING) { nee = lx->cur.text; lx_next(lx); }
+            else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                Variable* v = find_var(lx->cur.text); nee = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+            }
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            if (!hay || !nee) return 0.0;
+            { const char* p = strstr(hay, nee); return p ? (double)((int)(p - hay) + 1) : 0.0; }
+#else
+            char* p1 = NULL, * p2 = NULL;
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            {
+                const char* hay = NULL, * nee = NULL;
+                if (lx->cur.type == T_STRING) {
+                    hay = lx->cur.text;
+                    p1 = (char*)malloc(strlen(hay) + 1);
+                    if (p1 != NULL)
+                        strcpy(p1, hay);
+                    else
+                        return 0.0;
+                    lx_next(lx);
+                }
+                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                    Variable* v = find_var(lx->cur.text); hay = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+                }
+                if (lx->cur.type == T_COMMA) lx_next(lx);
+
+                if (lx->cur.type == T_STRING)
+                {
+                    nee = lx->cur.text;
+                    p2 = (char*)malloc(strlen(nee) + 1);
+                    if (p2 != NULL)
+                        strcpy(p2, nee);
+                    else
+                        return 0.0;
+                    lx_next(lx);
+                }
+
+                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                    Variable* v = find_var(lx->cur.text); nee = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+                }
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+                if (!p1 || !p2) return 0.0;
+                {
+                    const char* p = strstr(p1, p2);
+                    int reti = (int)(p - p1);
+                    double ret = (double)(reti);
+                    ret++;
+                    free(p1);
+                    free(p2);
+                    return p ? ret : 0.0;
+                }
+            }
+
+#endif // CHATGPT
+        }
+
+#endif //OLD
         /* TAB(n) — in numeric context just returns n (PRINT handles spacing) */
         if (!strcmp(fname, "TAB")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
@@ -394,6 +484,54 @@ static double parse_factor(Lexer* lx) {
             }
         }
 
+        /* LEFT$(s$, n) */
+        if (!strcmp(fname, "LEFT$")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            const char* s = ""; int n = 0;
+            if (lx->cur.type == T_STRING) { s = lx->cur.text; lx_next(lx); }
+            else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+            }
+            if (lx->cur.type == T_COMMA) { lx_next(lx); n = (int)parse_logic(lx); }
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            int sl = (int)strlen(s); if (n < 0) n = 0; if (n > sl) n = sl;
+            char tmp[1024]; int l = n; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
+            memcpy(tmp, s, l); tmp[l] = 0; return atof(tmp);
+        }
+
+        /* RIGHT$(s$, n) */
+        if (!strcmp(fname, "RIGHT$")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            const char* s = ""; int n = 0;
+            if (lx->cur.type == T_STRING) { s = lx->cur.text; lx_next(lx); }
+            else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+            }
+            if (lx->cur.type == T_COMMA) { lx_next(lx); n = (int)parse_logic(lx); }
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            int sl = (int)strlen(s); if (n < 0) n = 0; if (n > sl) n = sl;
+            int i0 = sl - n; if (i0 < 0) i0 = 0;
+            char tmp[1024]; int l = sl - i0; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
+            memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
+        }
+
+        /* MID$(s$, start[, len]) -> same as SEG$ */
+        if (!strcmp(fname, "MID$")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            const char* s = ""; int start = 1, len = 0;
+            if (lx->cur.type == T_STRING) { s = lx->cur.text; lx_next(lx); }
+            else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+            }
+            if (lx->cur.type == T_COMMA) { lx_next(lx); start = (int)parse_logic(lx); }
+            if (lx->cur.type == T_COMMA) { lx_next(lx); len = (int)parse_logic(lx); }
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            if (start < 1) start = 1; int sl = (int)strlen(s); int i0 = start - 1; if (i0 > sl) i0 = sl;
+            int l = (len > 0 ? len : (sl - i0)); if (i0 + l > sl) l = sl - i0; if (l < 0) l = 0;
+            char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
+            memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
+        }
+
         /* TRM$(s$) — trims leading and trailing spaces; numeric context coerces */
         if (!strcmp(fname, "TRM$")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
@@ -411,6 +549,23 @@ static double parse_factor(Lexer* lx) {
                 }
             }
         }
+
+        /* MOD(x,y) integer remainder; IDIV(x,y) integer division */
+        if (!strcmp(fname, "MOD")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            long a = (long)parse_logic(lx); if (lx->cur.type == T_COMMA) lx_next(lx);
+            long b = (long)parse_logic(lx); if (lx->cur.type == T_RPAREN) lx_next(lx);
+            if (b == 0) return 0.0;
+            return (double)(a % b);
+        }
+        if (!strcmp(fname, "IDIV")) {
+            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+            long a = (long)parse_logic(lx); if (lx->cur.type == T_COMMA) lx_next(lx);
+            long b = (long)parse_logic(lx); if (lx->cur.type == T_RPAREN) lx_next(lx);
+            if (b == 0) return 0.0;
+            return (double)(a / b);
+        }
+
 
         if (strcmp(fname, "ATN") == 0) {
             lx_next(lx);
