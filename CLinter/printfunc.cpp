@@ -554,6 +554,7 @@ int exec_print(Lexer* lx) {
             fputc((char)c, out);
             if (c == '\n' || c == '\r') g_print_col = 0;
             else                    g_print_col++;
+            suppress_nl = 0;
         }
 
         /* Optional separators after an item */

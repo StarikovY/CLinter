@@ -91,7 +91,7 @@ typedef struct {
 extern SArray g_sarrays[MAX_SARRAYS];
 extern int    g_sarray_count;
 
-extern int g_trace_enabled;
+extern int g_trace;
 extern int g_print_suppress_nl; // declare in header
 
 

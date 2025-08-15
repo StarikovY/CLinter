@@ -7,6 +7,13 @@
 #include "parse.h"
 #include "wxecut.h"
 
+#include <locale.h>
+#if defined(_WIN32)
+#include <windows.h>
+#include <io.h>
+#include <fcntl.h>
+#endif
+
 /* === Ctrl+C (SIGINT) support === */
 volatile sig_atomic_t g_ctrlc_pressed = 0;
 int g_current_exec_line = -1;
@@ -448,6 +455,18 @@ int main(int argc, char* argv[])
 	/* Install Ctrl+C (SIGINT) handler */
 	install_sigint_handler();
 
+	/* Enable UTF-8 I/O */
+	setlocale(LC_ALL, "");
+#if defined(_WIN32)
+	/* Make the console use UTF-8 */
+	SetConsoleOutputCP(CP_UTF8);
+	SetConsoleCP(CP_UTF8);
+	/* Optional: make stdout truly write UTF-8 bytes (not OEM translation) */
+	_setmode(_fileno(stdout), _O_BINARY);
+	_setmode(_fileno(stdin), _O_BINARY);
+#endif
+
+
 	char line[MAX_LINE_LEN];
 	memset(g_files, 0, sizeof(g_files));
 
@@ -470,10 +489,17 @@ int main(int argc, char* argv[])
 	/* ---- banner ---- */
 	if (autorun == 0)
 	{
-		printf("Linter - The interpreter of BASIC Programming language\n");
+		printf("     *\n");
+		printf("     *\n");
+		printf("     *       °\n");
+		printf("     *           ***   *     **    *  * \n");
+		printf("     *       *  *  *  ***   ****   **  *\n");
+		printf("     *       *  *  *   *    *      *\n");
+		printf("     ******  *  *  *   * *  ****   *\n");
+		printf("  The interpreter of BASIC Programming language\n");
 		printf("           Yuri Starikov - 1986 - 2025.\n");
 		printf("           This version was written on C++\n");
-		printf("Version: %s at %s\n", __DATE__, __TIME__);
+		printf("           Version: %s at %s\n", __DATE__, __TIME__);
 		printf("           Type HELP for help\nREADY.\n");
 	}
 

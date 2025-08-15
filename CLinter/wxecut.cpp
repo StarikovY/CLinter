@@ -59,7 +59,7 @@ static void data_ensure_cap(int need) {
 	g_data_cap = newcap;
 }
 
-g_trace_enabled = 0; 
+// g_trace_enabled = 0; 
 static void data_clear(void) {
     int i;
     if (g_data_vals) {
@@ -773,7 +773,7 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 			else { printf("ERROR: TRACE expects ON or OFF\n"); return -1; }
 			lx_next(&lx);
 		}
-		g_trace_enabled = on;
+		g_trace = on;
 		printf("TRACE %s\n", on ? "ON" : "OFF");
 		return 0;
 	}
