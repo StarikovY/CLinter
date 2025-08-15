@@ -267,40 +267,6 @@ void cmd_list(int startGiven, int start, int endGiven, int end) {
 
 /* Execute multiple statements on one physical line.
    Split on ':' or '\' unless inside a quoted string. */
-#ifdef OLD
-static int exec_multi(const char* src, int duringRun, int currentLine, int* outJump)
-{
-	char seg[MAX_LINE_LEN];
-	size_t n = strlen(src);
-	size_t start = 0;
-	int inq = 0;
-	size_t i = 0;
-
-	while (1) 
-	{
-		char c = (i < n) ? src[i] : '\0';
-		if (c == '"') inq = !inq;
-		if ((!inq && (c == ':' || c == '\\')) || c == '\0') {
-			size_t len = (i > start) ? (i - start) : 0;
-			if (len) {
-				if (len >= sizeof(seg)) len = sizeof(seg) - 1;
-				memcpy(seg, src + start, len);
-				seg[len] = 0;
-				trim(seg);
-				if (seg[0]) {
-					int rc = exec_statement(seg, duringRun, currentLine, outJump);
-					/* Propagate any non-zero result: jump(1), run(2), end(9), or error(<0) */
-					if (rc != 0) return rc;
-				}
-			}
-			if (c == '\0') break;
-			start = i + 1;
-		}
-		i++;
-	}
-	return 0;
-}
-#else
 
 static int exec_multi(const char* src, int duringRun, int currentLine, int* outJump) {
 	const char* p = src;
@@ -352,9 +318,6 @@ static int exec_multi(const char* src, int duringRun, int currentLine, int* outJ
 	return result;
 }
 
-
-
-#endif //OLD
 /* --------- Runner --------- */
 static void run_program(void) {
 	int pcIndex = 0;

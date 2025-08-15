@@ -340,54 +340,6 @@ static double parse_factor(Lexer* lx) {
         }
 
         /* POS(hay$, needle$) -> 1-based index (0 if not found) */
-#ifdef OLD
-        if (!strcmp(fname, "POS")) {
-            char* p1 = NULL, * p2=NULL;
-            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-            {
-                const char *hay=NULL, *nee = NULL;
-                if (lx->cur.type == T_STRING) { 
-                    hay = lx->cur.text; 
-                    p1 = (char *) malloc(strlen(hay)+1); 
-                    if (p1 != NULL)
-                        strcpy(p1, hay);
-                    else 
-                        return 0.0;
-                    lx_next(lx);
-                }
-                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
-                    Variable* v = find_var(lx->cur.text); hay = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
-                }
-                if (lx->cur.type == T_COMMA) lx_next(lx);
-
-                if (lx->cur.type == T_STRING) 
-                { 
-                    nee = lx->cur.text; 
-                    p2 = (char*)malloc(strlen(nee) + 1);
-                    if (p2 != NULL)
-                        strcpy(p2, nee);
-                    else
-                        return 0.0;
-                    lx_next(lx);  
-                }
-
-                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
-                    Variable* v = find_var(lx->cur.text); nee = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
-                }
-                if (lx->cur.type == T_RPAREN) lx_next(lx);
-                if (!p1 || !p2) return 0.0;
-                { 
-                    const char* p = strstr(p1, p2); 
-                    int reti = (int)(p - p1);
-                    double ret = (double)(reti);
-                    ret++;
-                    free(p1);
-                    free(p2);
-                    return p ? ret : 0.0; 
-                }
-            }
-        }
-#else
         /* POS() -> current print column (1-based) */
         if (!strcmp(fname, "POS")) {
             lx_next(lx);
@@ -400,22 +352,6 @@ static double parse_factor(Lexer* lx) {
 
         /* INSTR(hay$, needle$) -> 1-based index (0 if not found) */
         if (!strcmp(fname, "INSTR")) {
-#ifdef CHATGPT
-            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-            const char* hay = "", * nee = "";
-            if (lx->cur.type == T_STRING) { hay = lx->cur.text; lx_next(lx); }
-            else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
-                Variable* v = find_var(lx->cur.text); hay = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
-            }
-            if (lx->cur.type == T_COMMA) lx_next(lx);
-            if (lx->cur.type == T_STRING) { nee = lx->cur.text; lx_next(lx); }
-            else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
-                Variable* v = find_var(lx->cur.text); nee = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
-            }
-            if (lx->cur.type == T_RPAREN) lx_next(lx);
-            if (!hay || !nee) return 0.0;
-            { const char* p = strstr(hay, nee); return p ? (double)((int)(p - hay) + 1) : 0.0; }
-#else
             char* p1 = NULL, * p2 = NULL;
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             {
@@ -460,11 +396,8 @@ static double parse_factor(Lexer* lx) {
                     return p ? ret : 0.0;
                 }
             }
-
-#endif // CHATGPT
         }
 
-#endif //OLD
         /* TAB(n) — in numeric context just returns n (PRINT handles spacing) */
         if (!strcmp(fname, "TAB")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
