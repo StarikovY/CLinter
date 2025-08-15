@@ -40,7 +40,7 @@ extern ProgLine* g_prog_head;
 /* Tokenizer/Parser shared types */
 typedef enum {
     T_END=0, T_NUMBER, T_STRING, T_IDENT,
-    T_LET, T_PRINT, T_INPUT, T_IF, T_THEN, T_GOTO, T_ENDKW, T_STOP, T_REM, T_RUN, T_NEW, T_LIST, T_SAVE, T_LOAD,
+    T_LET, T_PRINT, T_INPUT, T_IF, T_ELSE, T_THEN, T_GOTO, T_ENDKW, T_STOP, T_REM, T_RUN, T_NEW, T_LIST, T_SAVE, T_LOAD,
     T_SAVEVARS, T_LOADVARS,
     T_FOR, T_TO, T_STEP, T_NEXT, T_GOSUB, T_RETURN,
     T_OPEN, T_CLOSE, T_AS, T_APPEND, T_OUTPUTKW,
@@ -153,6 +153,8 @@ int  data_read_next(char* dst, size_t cap);
 /* Small convenience helpers */
 void data_mark_dirty(void);                /* mark table stale (program changed) */
 void data_maybe_rebuild(void);             /* if not built, rebuild now (lazy) */
+
+int lx_peek_stmt_sep(const Lexer* lx);
 
 #ifdef __cplusplus
 }

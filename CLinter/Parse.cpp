@@ -85,6 +85,7 @@ void lx_next(Lexer* lx) {
             if (!strcmp(u, "INPUT")) { lx->cur.type = T_INPUT; return; }
             if (!strcmp(u, "LINE")) { lx->cur.type = T_LINE; return; }
             if (!strcmp(u, "IF")) { lx->cur.type = T_IF; return; }
+            if (!strcmp(u, "ELSE")) { lx->cur.type = T_ELSE; return; }
             if (!strcmp(u, "THEN")) { lx->cur.type = T_THEN; return; }
             if (!strcmp(u, "GOTO")) { lx->cur.type = T_GOTO; return; }
             if (!strcmp(u, "END")) { lx->cur.type = T_ENDKW; return; }

@@ -391,6 +391,57 @@ double fn_eof(int fileno) {
 	return 0;
 }
 
+/* Helper for IF THEN/ELSE single statement execution */
+static int run_if_single_stmt(Lexer* plx, int currentLine, int* outJump) {
+	/* THEN <line> */
+	if (plx->cur.type == T_NUMBER) {
+		*outJump = (int)plx->cur.number;
+		return 1;
+	}
+	/* THEN GOTO <line> */
+	if (plx->cur.type == T_GOTO) {
+		lx_next(plx);
+		if (plx->cur.type != T_NUMBER) {
+			printf("ERROR: line number expected\n");
+			return -1;
+		}
+		*outJump = (int)plx->cur.number;
+		return 1;
+	}
+	/* THEN GOSUB <line> */
+	if (plx->cur.type == T_GOSUB) {
+		int nextLine = next_line_number_after(currentLine);
+		lx_next(plx);
+		if (plx->cur.type != T_NUMBER) {
+			printf("ERROR: line number expected\n");
+			return -1;
+		}
+		if (nextLine < 0) {
+			printf("ERROR: GOSUB at last line\n");
+			return -1;
+		}
+		if (g_gosub_top >= MAX_STACK) {
+			printf("ERROR: GOSUB stack overflow\n");
+			return -1;
+		}
+		g_gosub_stack[g_gosub_top++] = nextLine;
+		*outJump = (int)plx->cur.number;
+		return 1;
+	}
+	/* THEN PRINT ... */
+	if (plx->cur.type == T_PRINT) {
+		return exec_print(plx); /* must stop on T_ELSE */
+	}
+	/* THEN LET or assignment */
+	if (plx->cur.type == T_LET || plx->cur.type == T_IDENT) {
+		return exec_assignment(plx);
+	}
+
+	printf("ERROR: unsupported statement after THEN/ELSE\n");
+	return -1;
+}
+
+
 /* ----------------- executor ----------------- */
 int exec_statement(const char* src, int duringRun, int currentLine, int* outJump)
 {
@@ -657,56 +708,48 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 	   | GOSUB <line>
 	   | <single statement>  (PRINT …, LET …, or <ident>=…)
 	*/
+	/* IF <cond> THEN
+	 <line>
+   | GOTO <line>
+   | GOSUB <line>
+   | <single statement>
+   [ ELSE <single statement> ]
+*/
 	if (lx.cur.type == T_IF) {
-		double cond;
 		lx_next(&lx);
-		cond = parse_rel(&lx);
+		double cond = parse_rel(&lx);
 
-		if (lx.cur.type != T_THEN) { printf("ERROR: THEN expected\n"); return -1; }
+		if (lx.cur.type != T_THEN) {
+			printf("ERROR: THEN expected\n");
+			return -1;
+		}
 		lx_next(&lx);
 
-		/* false: skip remainder of this statement segment */
-		if (cond == 0.0) return 0;
+		if (cond != 0.0) {
+			/* Run THEN part */
+			int rv = run_if_single_stmt(&lx, currentLine, outJump);
+			if (rv != 0) return rv; /* jump or error */
 
-		/* THEN <line> */
-		if (lx.cur.type == T_NUMBER) {
-			*outJump = (int)lx.cur.number;
-			return 1;
+			/* Skip ELSE part if present */
+			if (lx.cur.type == T_ELSE) {
+				lx_next(&lx);
+				/* Skip one statement after ELSE */
+				(void)run_if_single_stmt(&lx, currentLine, outJump);
+			}
+			return 0;
 		}
-
-		/* THEN GOTO <line> */
-		if (lx.cur.type == T_GOTO) {
-			lx_next(&lx);
-			if (lx.cur.type != T_NUMBER) { printf("ERROR: line number expected\n"); return -1; }
-			*outJump = (int)lx.cur.number;
-			return 1;
+		else {
+			/* Skip THEN part */
+			while (lx.cur.type != T_ELSE && lx.cur.type != T_END && !lx_peek_stmt_sep(&lx)) {
+				lx_next(&lx);
+			}
+			if (lx.cur.type == T_ELSE) {
+				lx_next(&lx);
+				return run_if_single_stmt(&lx, currentLine, outJump);
+			}
+			return 0;
 		}
-
-		/* THEN GOSUB <line> */
-		if (lx.cur.type == T_GOSUB) {
-			int nextLine = next_line_number_after(currentLine);
-			lx_next(&lx);
-			if (lx.cur.type != T_NUMBER) { printf("ERROR: line number expected\n"); return -1; }
-			if (nextLine < 0) { printf("ERROR: GOSUB at last line\n"); return -1; }
-			if (g_gosub_top >= MAX_STACK) { printf("ERROR: GOSUB stack overflow\n"); return -1; }
-			g_gosub_stack[g_gosub_top++] = nextLine;
-			*outJump = (int)lx.cur.number;
-			return 1;
-		}
-
-		/* THEN <single statement> */
-		if (lx.cur.type == T_PRINT) {
-			return exec_print(&lx);
-		}
-		if (lx.cur.type == T_LET || lx.cur.type == T_IDENT) {
-			return exec_assignment(&lx);
-		}
-
-		/* You can add more single-statement cases later (e.g., INPUT, OPEN, CLOSE). */
-		printf("ERROR: unsupported statement after THEN\n");
-		return -1;
 	}
-
 
 
 	if (lx.cur.type == T_GOTO) { lx_next(&lx); if (lx.cur.type != T_NUMBER) { printf("ERROR: GOTO needs line\n"); return -1; } *outJump = (int)lx.cur.number; return 1; }
@@ -764,8 +807,13 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 /* TRACE ON|OFF */
 	if (lx.cur.type == T_TRACE) {
 		lx_next(&lx);
-		int on = 1;  // default to ON if omitted
-		if (lx.cur.type == T_IDENT) {
+		int on = g_trace; // default to ON if omitted
+		
+		if ((lx.cur.type == T_ON) || (lx.cur.type == T_ONKW))
+			on = 1;
+		else if (lx.cur.type == T_OFF)
+			on = 0;
+		else if (lx.cur.type == T_IDENT) {
 			char up[8]; strncpy(up, lx.cur.text, 7); up[7] = 0;
 			for (int i = 0; up[i]; ++i) up[i] = (char)toupper((unsigned char)up[i]);
 			if (!strcmp(up, "ON"))  on = 1;

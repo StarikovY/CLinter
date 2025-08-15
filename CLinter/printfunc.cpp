@@ -31,7 +31,7 @@ static FILE* pf_file_from_handle(int n) {
 
 /* Return 1 if the next non-space char in the original source
    is a statement separator ':' or '\' or end-of-string. */
-static int lx_peek_stmt_sep(const Lexer* lx) {
+int lx_peek_stmt_sep(const Lexer* lx) {
     size_t j = lx->i;
     while (lx->s[j] && isspace((unsigned char)lx->s[j])) j++;
     int c = (int)lx->s[j];
@@ -487,8 +487,8 @@ int exec_print(Lexer* lx) {
     }
 
     /* main loop: run until end of this statement segment */
-    while (lx->cur.type != T_END) {
-
+//OLD:     while (lx->cur.type != T_END) {
+    while (!lx_peek_stmt_sep(lx) && lx->cur.type != T_END && lx->cur.type != T_ELSE) {
         /* TAB(n) absolute column (1-based) */
         if (lx->cur.type == T_IDENT) {
             char id[16]; strncpy(id, lx->cur.text, 15); id[15] = 0;
@@ -504,19 +504,23 @@ int exec_print(Lexer* lx) {
                 }
                 if (lx->cur.type == T_RPAREN) lx_next(lx);
 
+                // right after emitting the item (before handling , or ;)
+                if (lx->cur.type == T_ELSE) break;
+
                 if (lx->cur.type == T_COMMA) {
                     suppress_nl = 1; lx_next(lx);
                     int nextZone = ((g_print_col / PRINT_ZONE) + 1) * PRINT_ZONE;
                     while (g_print_col < nextZone) { fputc(' ', out); g_print_col++; }
-                    if (lx->cur.type == T_END) break;
+                    if (lx_peek_stmt_sep(lx) || lx->cur.type == T_END || lx->cur.type == T_ELSE) break;
                     continue;
                 }
                 if (lx->cur.type == T_SEMI) {
                     suppress_nl = 1; lx_next(lx);
-                    if (lx->cur.type == T_END) break;
+                    if (lx_peek_stmt_sep(lx) || lx->cur.type == T_END || lx->cur.type == T_ELSE) break;
                     continue;
                 }
-                if (lx->cur.type == T_END) break;
+                // if (lx->cur.type == T_END) break;
+                if (lx_peek_stmt_sep(lx) || lx->cur.type == T_END || lx->cur.type == T_ELSE) break;
                 continue;
             }
         }
@@ -557,19 +561,22 @@ int exec_print(Lexer* lx) {
             suppress_nl = 0;
         }
 
+        // right after emitting the item (before handling , or ;)
+        if (lx->cur.type == T_ELSE) break;
+
         /* Optional separators after an item */
         if (lx->cur.type == T_COMMA) {
             suppress_nl = 1;
             lx_next(lx);
             int nextZone = ((g_print_col / PRINT_ZONE) + 1) * PRINT_ZONE;
             while (g_print_col < nextZone) { fputc(' ', out); g_print_col++; }
-            if (lx->cur.type == T_END) break;
+            if (lx_peek_stmt_sep(lx) || lx->cur.type == T_END || lx->cur.type == T_ELSE) break;
             continue;
         }
         if (lx->cur.type == T_SEMI) {
             suppress_nl = 1;
             lx_next(lx);
-            if (lx->cur.type == T_END) break;
+            if (lx_peek_stmt_sep(lx) || lx->cur.type == T_END || lx->cur.type == T_ELSE) break;
             continue;
         }
 
