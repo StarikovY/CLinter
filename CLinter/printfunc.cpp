@@ -43,8 +43,8 @@ int lx_peek_stmt_sep(const Lexer* lx) {
     if (c == ((int)'\\'))
         ret = 1;
 
-    if (c == ((int)'\0'))
-        ret = 1;
+//    if (c == ((int)'\0'))
+//        ret = 1;
 
     return ret;
 }

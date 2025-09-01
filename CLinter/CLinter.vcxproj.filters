@@ -29,6 +29,9 @@
     <ClCompile Include="data_table.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="strcon.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="runtime.h">
@@ -41,6 +44,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="printfunc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="strcon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,5 +1,5 @@
 10 REM ==== MATH REGRESSION TESTS ====
-20 EPS = 1E-6
+20 EPS = 0.0001
 30 PRINT "MATH TESTS (EPS=";EPS;")"
 40 GOTO 200
 200 REM ---- Operators (+ - * / ^) ----

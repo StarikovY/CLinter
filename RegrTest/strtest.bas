@@ -10,7 +10,10 @@
 310 N$="LEN5":    EN=5:               GN=LEN("HELLO"):    GOSUB 9100
 320 N$="LEN0":    EN=0:               GN=LEN(""):         GOSUB 9100
 400 REM ---- LEFT$, RIGHT$, MID$ ----
-410 N$="LEFT$":   E$="HEL":           G$=LEFT$("HELLO",3): GOSUB 9000
+410 N$="LEFT$":   E$="HEL"           
+415 G$=LEFT$("HELLO",3)
+416 Print G$
+418 GOSUB 9000
 420 N$="RIGHT$":  E$="LLO":           G$=RIGHT$("HELLO",3): GOSUB 9000
 430 N$="MID$":    E$="ELL":           G$=MID$("HELLO",2,3): GOSUB 9000
 440 N$="MID$2":   E$="LO":            G$=MID$("HELLO",4):   GOSUB 9000
@@ -26,11 +29,17 @@
 800 PRINT: PRINT "DONE."
 810 END
 9000 REM ---- CHECK(name$, expected$, got$) ----
-9010 PRINT "TEST:"; N$; " EXP=["; E$; "] GOT=["; G$; "]";
-9020 IF E$ = G$ THEN PRINT "PASS" ELSE PRINT "FAIL"
+9010 PRINT "TEST: "; N$
+9015 Print "Got: "; G$; 
+9020 PRINT " EXP=["+ E$ + "] ";
+9020 IF E$ = G$ THEN PRINT " PASS" ELSE PRINT " FAIL"
 9030 RETURN
 9100 REM ---- CHECKN(name$, expected#, got#) ----
 9110 D = ABS(GN - EN)
-9120 PRINT "TEST:"; N$; " EXP="; EN; " GOT="; GN; " DIFF="; D;
-9130 IF D <= EPS THEN PRINT "PASS" ELSE PRINT "FAIL"
+9120 PRINT "TEST:"; " EXP="; EN; " GOT="; GN; " DIFF="; D;
+9130 IF D <= EPS THEN PRINT " PASS" ELSE PRINT " FAIL"
 9140 RETURN
+
+
+10 A$= "Hello, " +"World!"
+20 print a$

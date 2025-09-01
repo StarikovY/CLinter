@@ -6,6 +6,7 @@
 #include "parse.h"
 #include "wxecut.h"
 #include "printfunc.h"
+#include "strcon.h"
 
 /* --- exec helpers (no parsing here) --- */
 static int read_filename_after(Lexer*lx, char*out, size_t outsz){
@@ -145,6 +146,8 @@ static void dump_stack(void) {
     printf("GOSUB stack depth=%d\n", g_gosub_top);
     for (k = g_gosub_top - 1; k >= 0; k--) printf("  return to line %d\n", g_gosub_stack[k]);
 }
+
+
 
 /* ------- RENUM support ------- */
 
@@ -729,13 +732,14 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 			/* Run THEN part */
 			int rv = run_if_single_stmt(&lx, currentLine, outJump);
 			if (rv != 0) return rv; /* jump or error */
-
+#ifdef NEED
 			/* Skip ELSE part if present */
 			if (lx.cur.type == T_ELSE) {
 				lx_next(&lx);
 				/* Skip one statement after ELSE */
 				(void)run_if_single_stmt(&lx, currentLine, outJump);
 			}
+#endif
 			return 0;
 		}
 		else {
@@ -955,6 +959,11 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 			if (isStr) {
 				/* RHS: string literal, scalar string var, or string array elem */
 				if (lx.cur.type == T_STRING) {
+
+					/* ---- STRING assignment RHS with '+' concat ---- */
+					char obuf[4096]; SBuf sb; sbuf_init(&sb, obuf, sizeof(obuf));
+					parse_string_expr_to_buf(&lx, &sb);
+
 					SArray* sa = sarray_find(name);
 					if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
 					sarray_set(sa, subs, nsubs, lx.cur.text); lx_next(&lx);
@@ -1068,9 +1077,16 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		if (isStr) {
 			if (lx.cur.type == T_STRING)
 			{
-				Variable* v = ensure_var(name, 1);
-				if (!v) return -1;
-				if (v->str) free(v->str); v->str = strdup_c(lx.cur.text); lx_next(&lx);
+				char obuf[4096];
+				SBuf sb;
+				sbuf_init(&sb, obuf, sizeof(obuf));
+				parse_string_expr_to_buf(&lx, &sb);  // <-- parses "Hello, " + "World!" + STR$(N) + ...
+
+				Variable* v = find_var(name);
+				if (!v) v = create_string_var(name);				
+
+				if (!v) { printf("ERROR: OOM/VAR\n"); return -1; }
+				set_string_var(v, obuf);
 			}
 			else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
 				char sname[32]; strncpy(sname, lx.cur.text, sizeof(sname) - 1); sname[sizeof(sname) - 1] = 0; lx_next(&lx);
@@ -1128,6 +1144,138 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 						}
 					}
 				}
+				// YST Code
+				else if (_stricmp(sname, "LEFT$") == 0)
+				{
+					if (lx.cur.type == T_LPAREN) 
+						lx_next(&lx); 
+					
+					char str[1024];
+					str[0] = 0;
+					int n = 0;
+
+					if (lx.cur.type == T_STRING) 
+					{ 
+						strcpy (str,lx.cur.text); 
+						lx_next(&lx); 
+					}
+					else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) 
+					{
+						Variable* v = find_var(lx.cur.text); 
+						strcpy(str, (v && v->type == VT_STR && v->str) ? v->str : ""); 
+						lx_next(&lx);
+					}
+
+					if (lx.cur.type == T_COMMA) 
+					{ 
+						lx_next(&lx); 
+						n = (int)parse_rel(&lx);
+					}
+
+					if (lx.cur.type == T_RPAREN) 
+						lx_next(&lx);
+
+					int sl = (int)strlen(str); 
+					if (n < 0) 
+						n = 0; 
+					if (n > sl) 
+						n = sl;
+					
+					char tmp[1024]; 
+					int l = n; 
+					
+					if (l > (int)sizeof(tmp) - 1) // 1 for '\0'
+						l = (int)sizeof(tmp) - 1;
+					
+					memcpy(tmp, str, l); 
+					tmp[l] = '\0';
+
+					Variable* dst = ensure_var(name, 1); 
+					if (dst->str) 
+						free(dst->str); 
+					
+					dst->str = strdup_c(tmp);				
+				}
+
+				/* RIGHT$(s$, n) */
+				else if (_stricmp(sname, "RIGHT$") == 0) 
+				{
+					lx_next(&lx); 
+					if (lx.cur.type == T_LPAREN) 
+						lx_next(&lx);
+
+					char str[1024];
+					str[0] = 0;
+					int n = 0;
+
+					if (lx.cur.type == T_STRING) 
+					{ 
+						strcpy(str, lx.cur.text);
+						lx_next(&lx); 
+					}
+
+					else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) 
+					{
+						Variable* v = find_var(lx.cur.text); 
+						strcpy(str, (v&& v->type == VT_STR && v->str) ? v->str : "");
+						lx_next(&lx);
+					}
+					
+					if (lx.cur.type == T_COMMA) 
+					{ 
+						lx_next(&lx); 
+						n = (int)parse_rel(&lx); 
+					}
+
+					if (lx.cur.type == T_RPAREN) 
+						lx_next(&lx);
+
+					int sl = (int)strlen(str); 
+					if (n < 0) 
+						n = 0; 
+					if (n > sl) 
+						n = sl;
+
+					int i0 = sl - n; 
+					if (i0 < 0) 
+						i0 = 0;
+					
+					char tmp[1024]; 
+					int l = sl - i0; 
+					
+					if (l > (int)sizeof(tmp) - 1) 
+						l = (int)sizeof(tmp) - 1;
+					
+					memcpy(tmp, str + i0, l); 
+					tmp[l] = '\0';
+
+					Variable* dst = ensure_var(name, 1);
+					if (dst->str)
+						free(dst->str);
+
+					dst->str = strdup_c(tmp);
+				}
+
+				/* MID$(s$, start[, len]) -> same as SEG$ 
+				if (!strcmp(fname, "MID$")) {
+					lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
+					const char* s = ""; int start = 1, len = 0;
+					if (lx->cur.type == T_STRING) { s = lx->cur.text; lx_next(lx); }
+					else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+						Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
+					}
+					if (lx->cur.type == T_COMMA) { lx_next(lx); start = (int)parse_logic(lx); }
+					if (lx->cur.type == T_COMMA) { lx_next(lx); len = (int)parse_logic(lx); }
+					if (lx->cur.type == T_RPAREN) lx_next(lx);
+					if (start < 1) start = 1; int sl = (int)strlen(s); int i0 = start - 1; if (i0 > sl) i0 = sl;
+					int l = (len > 0 ? len : (sl - i0)); if (i0 + l > sl) l = sl - i0; if (l < 0) l = 0;
+					char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
+					memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
+				}
+
+				*/
+
+				//End YST Code
 
 				else if (lx.cur.type == T_LPAREN) {
 					int s2[MAX_DIMS], n2 = 0;

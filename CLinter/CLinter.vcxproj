@@ -124,6 +124,7 @@
     <ClCompile Include="help.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="printfunc.cpp" />
+    <ClCompile Include="strcon.cpp" />
     <ClCompile Include="wxecut.cpp">
       <CompileAs>CompileAsC</CompileAs>
     </ClCompile>
@@ -134,6 +135,7 @@
   <ItemGroup>
     <ClInclude Include="printfunc.h" />
     <ClInclude Include="runtime.h" />
+    <ClInclude Include="strcon.h" />
     <ClInclude Include="wxecut.h" />
     <ClInclude Include="parse.h" />
   </ItemGroup>
