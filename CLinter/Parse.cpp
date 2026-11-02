@@ -1,4 +1,4 @@
-/* Parse.cpp — full classic-C implementation of lexer + expression parser
+/* Parse.cpp ï¿½ full classic-C implementation of lexer + expression parser
    Features:
    - Tokens/keywords for the interpreter (LET, PRINT, INPUT, IF/THEN, GOTO, END, STOP, REM, RUN, NEW, LIST,
      SAVE/LOAD, SAVEVARS/LOADVARS, FOR/TO/STEP/NEXT, GOSUB/RETURN, OPEN/CLOSE/AS/APPEND/OUTPUT, HASH/LINE,
@@ -104,6 +104,7 @@ void lx_next(Lexer* lx) {
             if (!strcmp(u, "NEXT")) { lx->cur.type = T_NEXT; return; }
             if (!strcmp(u, "GOSUB")) { lx->cur.type = T_GOSUB; return; }
             if (!strcmp(u, "RETURN")) { lx->cur.type = T_RETURN; return; }
+            if (!strcmp(u, "FSEEK")) { lx->cur.type = T_FSEEK; return; }
             if (!strcmp(u, "OPEN")) { lx->cur.type = T_OPEN; return; }
             if (!strcmp(u, "CLOSE")) { lx->cur.type = T_CLOSE; return; }
             if (!strcmp(u, "AS")) { lx->cur.type = T_AS; return; }
@@ -398,13 +399,13 @@ static double parse_factor(Lexer* lx) {
             }
         }
 
-        /* TAB(n) — in numeric context just returns n (PRINT handles spacing) */
+        /* TAB(n) ï¿½ in numeric context just returns n (PRINT handles spacing) */
         if (!strcmp(fname, "TAB")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return v; }
         }
 
-        /* SEG$(s$, start, len) — numeric context coerces with atof result */
+        /* SEG$(s$, start, len) ï¿½ numeric context coerces with atof result */
         if (!strcmp(fname, "SEG$")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             {
@@ -474,7 +475,7 @@ static double parse_factor(Lexer* lx) {
             memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
         }
 
-        /* TRM$(s$) — trims leading and trailing spaces; numeric context coerces */
+        /* TRM$(s$) ï¿½ trims leading and trailing spaces; numeric context coerces */
         if (!strcmp(fname, "TRM$")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             {
@@ -644,8 +645,55 @@ static double parse_expr(Lexer*lx)
     return v;
 }
 
+/* Read a scalar or array string operand for relational comparison. */
+static void read_comparison_string(Lexer *lx, char *out, size_t cap) {
+    out[0] = 0;
+    if (lx->cur.type == T_STRING) {
+        snprintf(out, cap, "%s", lx->cur.text);
+        lx_next(lx); return;
+    }
+    char name[128]; snprintf(name, sizeof(name), "%s", lx->cur.text);
+    lx_next(lx);
+    if (lx->cur.type == T_LPAREN) {
+        int subs[MAX_DIMS], n = 0;
+        lx_next(lx);
+        while (lx->cur.type != T_RPAREN && lx->cur.type != T_END && n < MAX_DIMS) {
+            subs[n++] = (int)parse_rel(lx);
+            if (lx->cur.type == T_COMMA) lx_next(lx); else break;
+        }
+        if (lx->cur.type == T_RPAREN) lx_next(lx);
+        SArray *a = sarray_find(name);
+        const char *v = a ? sarray_get(a, subs, n) : "";
+        snprintf(out, cap, "%s", v ? v : "");
+    } else {
+        Variable *v = find_var(name);
+        snprintf(out, cap, "%s", v && v->str ? v->str : "");
+    }
+}
+
 /* comparisons -> boolean 0/1 */
 static double parse_relation(Lexer* lx) {
+    /* String relational operands must compare as strings, not atof().
+       This path covers scalar string variables and string literals. */
+    if (lx->cur.type == T_STRING ||
+        (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text))) {
+        char left[1024], right[1024];
+        read_comparison_string(lx, left, sizeof(left));
+        TokType op = lx->cur.type;
+        if (op == T_EQ || op == T_NE || op == T_LT || op == T_GT || op == T_LE || op == T_GE) {
+            lx_next(lx);
+            if (lx->cur.type != T_STRING &&
+                !(lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text))) {
+                printf("ERROR: string comparison expects string operand\n"); return 0;
+            }
+            read_comparison_string(lx, right, sizeof(right));
+            int cmp = strcmp(left, right);
+            return (op == T_EQ ? cmp == 0 : op == T_NE ? cmp != 0 :
+                    op == T_LT ? cmp < 0 : op == T_GT ? cmp > 0 :
+                    op == T_LE ? cmp <= 0 : cmp >= 0) ? 1.0 : 0.0;
+        }
+        return atof(left);
+    }
     double lhs = parse_expr(lx);
     if (lx->cur.type == T_EQ || lx->cur.type == T_NE || lx->cur.type == T_LT || lx->cur.type == T_GT || lx->cur.type == T_LE || lx->cur.type == T_GE) {
         TokType op = lx->cur.type; lx_next(lx);

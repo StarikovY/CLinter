@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>
 #include "parse.h"
 #include "runtime.h"
 #include "strcon.h"
@@ -46,6 +47,20 @@ void parse_string_term_to_buf(Lexer* lx, SBuf* sb) {
     else if (lx->cur.type == T_NUMBER) {
         sbuf_cat_num(sb, lx->cur.number);
         lx_next(lx);
+    }
+    else if (lx->cur.type == T_IDENT &&
+             (!strcmp(lx->cur.text, "UPPER$") || !strcmp(lx->cur.text, "LOWER$"))) {
+        int upper = !strcmp(lx->cur.text, "UPPER$");
+        lx_next(lx);
+        if (lx->cur.type != T_LPAREN) return;
+        lx_next(lx);
+        char tmp[1024]; SBuf inner;
+        sbuf_init(&inner, tmp, sizeof(tmp));
+        parse_string_expr_to_buf(lx, &inner);
+        if (lx->cur.type == T_RPAREN) lx_next(lx);
+        for (size_t k=0; k<inner.len; ++k)
+            tmp[k] = (char)(upper ? toupper((unsigned char)tmp[k]) : tolower((unsigned char)tmp[k]));
+        sbuf_cat(sb, tmp);
     }
     else if (lx->cur.type == T_IDENT) {
         Variable* v = find_var(lx->cur.text);

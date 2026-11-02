@@ -35,7 +35,7 @@ static int    g_data_cap = 0;
 ProgLine* g_prog_head = NULL;
 
 /* ---- small portable strdup ---- */
-static char* strdup_c(const char* s) {
+static char* data_strdup_c(const char* s) {
     if (!s) return NULL;
     size_t n = strlen(s) + 1;
     char* p = (char*)malloc(n);
@@ -76,7 +76,7 @@ static void data_ensure_cap(int need) {
 /* ---- push one DATA item ---- */
 static void data_push_value(const char* val, int line) {
     data_ensure_cap(g_data_count + 1);
-    g_data_vals[g_data_count] = strdup_c(val ? val : "");
+    g_data_vals[g_data_count] = data_strdup_c(val ? val : "");
     g_data_lines[g_data_count] = line;
     g_data_count++;
 }

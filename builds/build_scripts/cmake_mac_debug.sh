@@ -1,0 +1,1 @@
+cmake -S ../cmake_config -B builds/drops/macos-arm64/cmake/Debug -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug

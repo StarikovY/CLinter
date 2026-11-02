@@ -1,0 +1,3 @@
+10 INPUT N
+20 PRINT "N=";N
+30 END

@@ -2,6 +2,8 @@
 #ifndef RUNTIME_H
 #define RUNTIME_H
 
+#include "platform_compat.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -43,7 +45,7 @@ typedef enum {
     T_LET, T_PRINT, T_INPUT, T_IF, T_ELSE, T_THEN, T_GOTO, T_ENDKW, T_STOP, T_REM, T_RUN, T_NEW, T_LIST, T_SAVE, T_LOAD,
     T_SAVEVARS, T_LOADVARS,
     T_FOR, T_TO, T_STEP, T_NEXT, T_GOSUB, T_RETURN,
-    T_OPEN, T_CLOSE, T_AS, T_APPEND, T_OUTPUTKW,
+    T_OPEN, T_FSEEK, T_CLOSE, T_AS, T_APPEND, T_OUTPUTKW,
     T_HASH, T_LINE, T_DIM,
     T_EQ, T_NE, T_LT, T_GT, T_LE, T_GE, T_AND, T_OR, T_XOR, T_NOT,
     T_PLUS, T_MINUS, T_STAR, T_SLASH, T_LPAREN, T_RPAREN, T_COMMA, T_SEMI, T_POWOP,

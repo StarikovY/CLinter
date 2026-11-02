@@ -6,6 +6,7 @@
 #include "runtime.h"
 #include "parse.h"
 #include "wxecut.h"
+#include "basic_repl.h"
 
 #include <locale.h>
 #if defined(_WIN32)
@@ -268,7 +269,7 @@ void cmd_list(int startGiven, int start, int endGiven, int end) {
 /* Execute multiple statements on one physical line.
    Split on ':' or '\' unless inside a quoted string. */
 
-static int exec_multi(const char* src, int duringRun, int currentLine, int* outJump) {
+extern "C" int exec_multi(const char* src, int duringRun, int currentLine, int* outJump) {
 	const char* p = src;
 	int result = 0;
 
@@ -280,6 +281,12 @@ static int exec_multi(const char* src, int duringRun, int currentLine, int* outJ
 		// mark start of this sub-statement
 		const char* stmt_start = p;
 
+		/* IF owns its entire remaining line, including colon-separated
+		   THEN/ELSE branches. Do not split it before evaluating condition. */
+		if ((p[0]=='I'||p[0]=='i') && (p[1]=='F'||p[1]=='f') &&
+		    (p[2]==' '||p[2]=='\t')) {
+			return exec_statement(p, duringRun, currentLine, outJump);
+		}
 		// find next ':' or '\' separator (not inside quotes)
 		int in_str = 0;
 		while (*p) {
@@ -319,7 +326,9 @@ static int exec_multi(const char* src, int duringRun, int currentLine, int* outJ
 }
 
 /* --------- Runner --------- */
+extern "C" void exec_data_reset_for_run(void);
 static void run_program(void) {
+    exec_data_reset_for_run();
 	int pcIndex = 0;
 
 	if (g_prog_count <= 0) {
@@ -454,7 +463,7 @@ int main(int argc, char* argv[])
 	{
 		printf("     *\n");
 		printf("     *\n");
-		printf("     *       °\n");
+		printf("     *       \xB0\n");
 		printf("     *           ***   *     **    *  * \n");
 		printf("     *       *  *  *  ***   ****   **  *\n");
 		printf("     *       *  *  *   *    *      *\n");
@@ -475,10 +484,34 @@ int main(int argc, char* argv[])
 
 	/* ---- interactive loop ---- */
 	for (;;) {
-		printf("> ");
-		if (!fgets(line, sizeof(line), stdin)) break;
+		int input_status = basic_readline("> ", line, sizeof(line));
+		if (input_status == 0) break;
+		if (input_status < 0) continue;
 		trim(line);
 		if (line[0] == 0) continue;
+        if (line[0] == '!') {
+            char expanded[MAX_LINE_LEN];
+            if (!basic_history_expand(line, expanded, sizeof(expanded))) {
+                printf("HISTORY: event not found: %s\n", line);
+                continue;
+            }
+            strcpy(line, expanded);
+            printf("%s\n", line);
+        }
+        if (starts_with_kw(line, "HISTORY")) {
+            char *arg = line + 7;
+            while (*arg && isspace((unsigned char)*arg)) arg++;
+            if (*arg == 0) basic_history_print(-1);
+            else if (_stricmp(arg, "CLEAR") == 0) basic_history_clear();
+            else {
+                char *end; long n = strtol(arg, &end, 10);
+                while (*end && isspace((unsigned char)*end)) end++;
+                if (end == arg || *end || n < 0) printf("USAGE: HISTORY [count|CLEAR]\n");
+                else basic_history_print(n > 100 ? 100 : (int)n);
+            }
+            continue;
+        }
+        basic_history_add(line);
 
 		/* Immediate HELP */
 		if (starts_with_kw(line, "HELP")) {
@@ -505,7 +538,7 @@ int main(int argc, char* argv[])
 			continue;
 		}
 
-		/* Immediate (non-numbered) statements — execute ALL segments */
+		/* Immediate (non-numbered) statements ï¿½ execute ALL segments */
 		int jump = 0;
 		int code = exec_multi(line, /*duringRun=*/0, /*currentLine=*/-1, &jump);
 
@@ -517,7 +550,7 @@ int main(int argc, char* argv[])
 		}
 
 		if (code == 2) {
-			/* if your exec_statement/exec_multi uses 2 to mean “RUN” */
+			/* if your exec_statement/exec_multi uses 2 to mean ï¿½RUNï¿½ */
 			run_program();
 		}
 	}

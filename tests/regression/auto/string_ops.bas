@@ -1,0 +1,8 @@
+10 A$="HELLO"
+20 B$="WORLD"
+30 PRINT "STRING=";A$;" ";B$
+40 IF A$="HELLO" THEN 60 ELSE 90
+50 PRINT "FAIL:string"
+60 PRINT "PASS:string"
+70 END
+90 PRINT "FAIL:string"

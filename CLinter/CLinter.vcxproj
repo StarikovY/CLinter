@@ -120,6 +120,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="basic_repl.cpp" />
     <ClCompile Include="data_table.cpp" />
     <ClCompile Include="help.cpp" />
     <ClCompile Include="main.cpp" />
@@ -134,6 +135,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="printfunc.h" />
+    <ClInclude Include="basic_repl.h" />
     <ClInclude Include="runtime.h" />
     <ClInclude Include="strcon.h" />
     <ClInclude Include="wxecut.h" />

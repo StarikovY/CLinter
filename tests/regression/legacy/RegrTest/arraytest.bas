@@ -1,0 +1,42 @@
+100 PRINT "=== Array Test ==="
+
+110 DIM A(3)
+120 FOR I = 0 TO 2
+130 A(I) = (I+1) * 2
+140 NEXT I
+150 FOR I = 0 TO 2
+160 PRINT "A(";I;")=";A(I)
+170 NEXT I
+
+200 DIM B(3,3)
+210 FOR I = 0 TO 2
+220 FOR J = 0 TO 2
+230 B(I,J) = I*10 + J
+240 NEXT J
+250 NEXT I
+260 FOR I = 0 TO 2
+270 FOR J = 0 TO 2
+280 PRINT "B(";I;",";J;")=";B(I,J)
+290 NEXT J
+300 NEXT I
+
+310 DIM S$(3)
+320 S$(0) = "APPLE"
+330 S$(1) = "BANANA"
+340 S$(2) = "CHERRY"
+350 FOR I = 0 TO 2
+360 PRINT "S$(";I;")=";S$(I)
+370 NEXT I
+
+400 DIM M$(2,2)
+410 M$(0,0) = "A"
+420 M$(0,1) = "B"
+430 M$(1,0) = "C"
+440 M$(1,1) = "D"
+450 FOR I = 0 TO 1
+460 FOR J = 0 TO 1
+470 PRINT "M$(";I;",";J;")=";M$(I,J)
+480 NEXT J
+490 NEXT I
+
+900 PRINT "=== End Array Test ==="

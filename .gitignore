@@ -32,6 +32,8 @@ bld/
 [Oo]ut/
 [Ll]og/
 [Ll]ogs/
+build/drops
+
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
@@ -361,3 +363,7 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+builds/drops/*
+CLinter_snapshot_small.zip
+builds/.DS_Store
+builds/build_scripts/.DS_Store

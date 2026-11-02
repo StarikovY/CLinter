@@ -7,27 +7,15 @@
 #include "wxecut.h"
 #include "printfunc.h"
 #include "strcon.h"
+#include "basic_fileio.h"
+int exec_assignment_tail(Lexer lx, int duringRun, int currentLine);
+extern int exec_multi(const char*, int, int, int*);
 
-/* --- exec helpers (no parsing here) --- */
-static int read_filename_after(Lexer*lx, char*out, size_t outsz){
+static int read_filename_after(Lexer *lx, char *out, size_t cap) {
     lx_next(lx);
-    if(lx->cur.type==T_STRING){ strncpy(out,lx->cur.text,outsz-1); out[outsz-1]=0; return 1; }
-    if(lx->cur.type==T_IDENT){ strncpy(out,lx->cur.text,outsz-1); out[outsz-1]=0; return 1; }
-    return 0;
-}
-static FILE* file_from_handle(int n){
-    if(n<0 || n>=MAX_FILES) return NULL;
-    if(!g_files[n].used) return NULL;
-    return g_files[n].fp;
-}
-static int read_token_from_file(FILE*fp, char*buf, size_t cap){
-    int c, i=0;
-    do { c=fgetc(fp); if(c==EOF) return 0; } while(c==' '||c=='\t'||c=='\r'||c=='\n'||c==',');
-    while(c!=EOF && c!=',' && c!='\n' && c!='\r'){ if(i+1<(int)cap) buf[i++]=(char)c; c=fgetc(fp); }
-    buf[i]='\0'; return 1;
-}
-static int read_line_from_file(FILE*fp, char*buf, size_t cap){
-    if(!fgets(buf, (int)cap, fp)) return 0; buf[cap-1]=0; trim(buf); return 1;
+    if (lx->cur.type != T_STRING && lx->cur.type != T_IDENT) return 0;
+    strncpy(out,lx->cur.text,cap-1); out[cap-1]=0;
+    return 1;
 }
 
 /* -------- DATA pool (lazy build) -------- */
@@ -68,6 +56,7 @@ static void data_clear(void) {
         free(g_data_vals);
     }
     g_data_vals = NULL; g_data_count = 0; g_data_ptr = 0; g_data_built = 0;
+    free(g_data_lines); g_data_lines = NULL; g_data_cap = 0;
 }
 
 static void data_push(const char* s) {
@@ -85,6 +74,7 @@ static void data_build_from_program(void) {
         const char* src = g_prog[i].text;
         Lexer lx; lx_init(&lx, src); lx_next(&lx);
         if (lx.cur.type != T_DATA) continue;
+        int before_count = g_data_count;
         /* After DATA: comma-separated list of string literals or numeric expressions */
         lx_next(&lx);
         while (lx.cur.type != T_END) {
@@ -104,6 +94,11 @@ static void data_build_from_program(void) {
             /* tolerate stray tokens; stop at line end */
             if (lx.cur.type != T_END) { /* consume unexpected */ lx_next(&lx); }
         }
+        /* Record the source line for RESTORE <line>. */
+        int* lines = (int*)realloc(g_data_lines, sizeof(int) * (size_t)g_data_count);
+        if (!lines && g_data_count) { fprintf(stderr, "ERROR: OUT OF MEMORY\n"); exit(1); }
+        g_data_lines = lines;
+        for (int j = before_count; j < g_data_count; ++j) g_data_lines[j] = g_prog[i].number;
     }
     g_data_built = 1;
 }
@@ -602,40 +597,64 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		}
 	}
 
-	/* FILE I/O */
-	if (lx.cur.type == T_OPEN) {
-		char fname[260]; fname[0] = 0; int mode = 0; int handle = -1; FILE* fp;
-		if (!read_filename_after(&lx, fname, sizeof(fname))) { printf("ERROR: OPEN needs filename\n"); return -1; }
-		if (lx.cur.type != T_FOR) { printf("ERROR: OPEN needs FOR\n"); return -1; }
-		lx_next(&lx);
-		if (lx.cur.type == T_INPUT) mode = 0;
-		else if (lx.cur.type == T_OUTPUTKW) mode = 1;
-		else if (lx.cur.type == T_APPEND) mode = 2;
-		else { printf("ERROR: OPEN mode\n"); return -1; }
-		lx_next(&lx);
-		if (lx.cur.type != T_AS) { printf("ERROR: OPEN needs AS\n"); return -1; }
-		lx_next(&lx);
-		if (lx.cur.type == T_HASH) lx_next(&lx);
-		if (lx.cur.type != T_NUMBER) { printf("ERROR: OPEN needs handle number\n"); return -1; }
-		handle = (int)lx.cur.number;
-		if (handle < 0 || handle >= MAX_FILES) { printf("ERROR: handle out of range\n"); return -1; }
-		if (g_files[handle].used) { printf("ERROR: handle already open\n"); return -1; }
-		if (mode == 0) fp = fopen(fname, "rb"); else if (mode == 1) fp = fopen(fname, "wb"); else fp = fopen(fname, "ab");
-		if (!fp) { printf("ERROR: cannot open file\n"); return -1; }
-		g_files[handle].used = 1; g_files[handle].fp = fp; return 0;
+	if (lx.cur.type == T_INPUT) {
+		Lexer probe = lx;
+		lx_next(&probe);
+		if (probe.cur.type == T_HASH) return basic_fileio_statement(&lx, outJump);
 	}
 
-	if (lx.cur.type == T_CLOSE) {
+	/* Console INPUT: INPUT N[,M] or INPUT "prompt"; N */
+	if (lx.cur.type == T_INPUT) {
+		int prompted = 0;
 		lx_next(&lx);
-		if (lx.cur.type == T_HASH || lx.cur.type == T_NUMBER) {
-			int handle; if (lx.cur.type == T_HASH) lx_next(&lx);
-			if (lx.cur.type != T_NUMBER) { printf("ERROR: CLOSE needs number\n"); return -1; }
-			handle = (int)lx.cur.number;
-			if (handle >= 0 && handle < MAX_FILES && g_files[handle].used) { fclose(g_files[handle].fp); g_files[handle].used = 0; g_files[handle].fp = NULL; }
+		if (lx.cur.type == T_STRING) {
+			fputs(lx.cur.text, stdout);
+			fflush(stdout);
+			prompted = 1;
+			lx_next(&lx);
+			if (lx.cur.type != T_SEMI && lx.cur.type != T_COMMA) {
+				printf("ERROR: INPUT prompt needs ';' or ','\n"); return -1;
+			}
+			lx_next(&lx);
 		}
-		else { files_clear(); }
+		if (lx.cur.type != T_IDENT) { printf("ERROR: INPUT needs variable\n"); return -1; }
+		for (;;) {
+			char name[sizeof(lx.cur.text)];
+			char value[1024];
+			char *end;
+			double number;
+			int string_var;
+			if (lx.cur.type != T_IDENT) { printf("ERROR: INPUT needs variable\n"); return -1; }
+			strncpy(name, lx.cur.text, sizeof(name)-1); name[sizeof(name)-1] = 0;
+			string_var = is_string_var_name(name);
+			lx_next(&lx);
+			if (lx.cur.type != T_COMMA && lx.cur.type != T_END) {
+				printf("ERROR: unsupported INPUT target\n"); return -1;
+			}
+			if (!prompted) { fputs("? ", stdout); fflush(stdout); }
+			if (!fgets(value, sizeof(value), stdin)) { printf("ERROR: INPUT end of file\n"); return -1; }
+			value[strcspn(value, "\r\n")] = 0;
+			if (string_var) {
+				Variable *v = ensure_var(name, 1);
+				char *copy = strdup_c(value);
+				if (!copy) { printf("ERROR: out of memory\n"); return -1; }
+				free(v->str); v->str = copy;
+			} else {
+				number = strtod(value, &end);
+				while (*end == ' ' || *end == '\t') end++;
+				if (end == value || *end) { printf("ERROR: INPUT expects number\n"); return -1; }
+				ensure_var(name, 0)->num = number;
+			}
+			prompted = 0;
+			if (lx.cur.type != T_COMMA) break;
+			lx_next(&lx);
+		}
 		return 0;
 	}
+
+	/* Sequential file I/O is implemented in basic_fileio.cpp. */
+	if (lx.cur.type == T_OPEN || lx.cur.type == T_FSEEK || lx.cur.type == T_CLOSE || lx.cur.type == T_LINE)
+		return basic_fileio_statement(&lx, outJump);
 
 	/* RUN / END */
 	if (lx.cur.type == T_RUN) { return 2; }
@@ -647,7 +666,7 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 	}
 
 	// RENUM
-	/* RENUM [start [step]] — immediate mode only */
+	/* RENUM [start [step]] ï¿½ immediate mode only */
 	if (lx.cur.type == T_RENUM) {
 		if (duringRun) { printf("ERROR: RENUM not allowed during RUN\n"); return -1; }
 
@@ -709,7 +728,7 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		 <line>
 	   | GOTO <line>
 	   | GOSUB <line>
-	   | <single statement>  (PRINT …, LET …, or <ident>=…)
+	   | <single statement>  (PRINT ï¿½, LET ï¿½, or <ident>=ï¿½)
 	*/
 	/* IF <cond> THEN
 	 <line>
@@ -719,40 +738,55 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
    [ ELSE <single statement> ]
 */
 	if (lx.cur.type == T_IF) {
+		/* Evaluate the condition once, then execute exactly one branch.
+		   Colons and backslashes are statement separators inside branches. */
 		lx_next(&lx);
 		double cond = parse_rel(&lx);
-
 		if (lx.cur.type != T_THEN) {
 			printf("ERROR: THEN expected\n");
 			return -1;
 		}
-		lx_next(&lx);
-
+		/* Lexer offset is immediately after THEN keyword. */
+		const char *thenStart = src + lx.i;
+		const char *elsePos = NULL;
+		int quoted = 0;
+		for (const char *q = thenStart; *q; ++q) {
+			if (*q == '"') quoted = !quoted;
+			if (!quoted && (q == thenStart || !isalnum((unsigned char)q[-1])) &&
+			    (q[0]=='E'||q[0]=='e') && (q[1]=='L'||q[1]=='l') &&
+			    (q[2]=='S'||q[2]=='s') && (q[3]=='E'||q[3]=='e') &&
+			    !isalnum((unsigned char)q[4]) && q[4]!='_') {
+				elsePos = q; break;
+			}
+		}
+		const char *chosen = NULL;
+		size_t chosenLen = 0;
 		if (cond != 0.0) {
-			/* Run THEN part */
-			int rv = run_if_single_stmt(&lx, currentLine, outJump);
-			if (rv != 0) return rv; /* jump or error */
-#ifdef NEED
-			/* Skip ELSE part if present */
-			if (lx.cur.type == T_ELSE) {
-				lx_next(&lx);
-				/* Skip one statement after ELSE */
-				(void)run_if_single_stmt(&lx, currentLine, outJump);
-			}
-#endif
-			return 0;
+			chosen = thenStart;
+			chosenLen = elsePos ? (size_t)(elsePos - thenStart) : strlen(thenStart);
+		} else if (elsePos) {
+			chosen = elsePos + 4;
+			chosenLen = strlen(chosen);
 		}
-		else {
-			/* Skip THEN part */
-			while (lx.cur.type != T_ELSE && lx.cur.type != T_END && !lx_peek_stmt_sep(&lx)) {
-				lx_next(&lx);
-			}
-			if (lx.cur.type == T_ELSE) {
-				lx_next(&lx);
-				return run_if_single_stmt(&lx, currentLine, outJump);
-			}
-			return 0;
+		if (!chosen) return 0;
+		while (chosenLen && isspace((unsigned char)*chosen)) { chosen++; chosenLen--; }
+		while (chosenLen && isspace((unsigned char)chosen[chosenLen-1])) chosenLen--;
+		if (!chosenLen) return 0;
+		char *branch = (char*)malloc(chosenLen + 1);
+		if (!branch) { printf("ERROR: out of memory\n"); return -1; }
+		memcpy(branch, chosen, chosenLen); branch[chosenLen] = 0;
+		/* Bare line number after THEN or ELSE means GOTO. */
+		char *endNumber = NULL;
+		long target = strtol(branch, &endNumber, 10);
+		while (endNumber && isspace((unsigned char)*endNumber)) endNumber++;
+		int rv;
+		if (endNumber && endNumber != branch && !*endNumber) {
+			*outJump = (int)target; rv = 1;
+		} else {
+			rv = exec_multi(branch, duringRun, currentLine, outJump);
 		}
+		free(branch);
+		return rv;
 	}
 
 
@@ -863,15 +897,19 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 
 	if (lx.cur.type == T_RESTORE) {
 		lx_next(&lx);
-		data_maybe_rebuild();   /* if never built or program changed, build now */
+		if (!g_data_built) data_build_from_program();
 
 		if (lx.cur.type == T_NUMBER) {
 			int ln = (int)lx.cur.number;
 			lx_next(&lx);
-			data_restore_at_line(ln);
+			{
+                int pos = 0;
+                while (pos < g_data_count && g_data_lines[pos] < ln) ++pos;
+                g_data_ptr = pos;
+            }
 		}
 		else {
-			data_restore();
+			g_data_ptr = 0;
 		}
 		return 0;
 	}
@@ -879,7 +917,7 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 	if (lx.cur.type == T_READ)
 	{
 		/* Lazily build DATA pool on first READ */
-		data_maybe_rebuild();   /* if never built or program changed, build now */
+		if (!g_data_built) data_build_from_program();
 
 		for (;;) {
 			lx_next(&lx);
@@ -934,378 +972,8 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		return 0;
 	}
 
-	/* Handle assignment to variable or array element */
-	if (lx.cur.type == T_LET) lx_next(&lx);
-
-	if (lx.cur.type == T_IDENT) {
-		int isStr; char name[32]; strncpy(name, lx.cur.text, sizeof(name) - 1); name[sizeof(name) - 1] = 0; isStr = is_string_var_name(name);
-		lx_next(&lx);
-
-		/* Array element assignment: NAME '(' subs ')' '=' expr/string */
-		if (lx.cur.type == T_LPAREN) {
-			int subs[MAX_DIMS], nsubs = 0;
-			lx_next(&lx);
-			while (lx.cur.type != T_RPAREN && lx.cur.type != T_END) {
-				if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); return -1; }
-				subs[nsubs++] = (int)parse_rel(&lx);
-				if (lx.cur.type == T_COMMA) { lx_next(&lx); continue; }
-				else break;
-			}
-			if (lx.cur.type != T_RPAREN) { printf("ERROR: missing ')'\n"); return -1; }
-			lx_next(&lx);
-			if (lx.cur.type != T_EQ) { printf("ERROR: '=' expected\n"); return -1; }
-			lx_next(&lx);
-
-			if (isStr) {
-				/* RHS: string literal, scalar string var, or string array elem */
-				if (lx.cur.type == T_STRING) {
-
-					/* ---- STRING assignment RHS with '+' concat ---- */
-					char obuf[4096]; SBuf sb; sbuf_init(&sb, obuf, sizeof(obuf));
-					parse_string_expr_to_buf(&lx, &sb);
-
-					SArray* sa = sarray_find(name);
-					if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
-					sarray_set(sa, subs, nsubs, lx.cur.text); lx_next(&lx);
-				}
-				else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
-					char srcname[32]; strncpy(srcname, lx.cur.text, sizeof(srcname) - 1); srcname[sizeof(srcname) - 1] = 0; lx_next(&lx);
-					if (_stricmp(srcname, "CHR$") == 0) {
-						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-						{
-							double v = parse_rel(&lx); char ch[2]; ch[0] = (char)((int)v); ch[1] = 0;
-							SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
-							sarray_set(sa, subs, nsubs, ch);
-						}
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-
-					}
-					else if (_stricmp(srcname, "STR$") == 0)
-					{
-						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-						{
-							double v = parse_rel(&lx); char buf[64];
-#ifdef _MSC_VER
-							_snprintf(buf, sizeof(buf), "%.15g", v);
-#else
-							snprintf(buf, sizeof(buf), "%.15g", v);
-#endif
-							SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
-							sarray_set(sa, subs, nsubs, buf);
-						}
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-					}
-					else if (_stricmp(srcname, "SEG$") == 0) {
-						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-						{
-							const char* s = ""; int start = 1, len = 0;
-							if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
-							else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
-								Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
-							}
-							if (lx.cur.type == T_COMMA) { lx_next(&lx); start = (int)parse_rel(&lx); }
-							if (lx.cur.type == T_COMMA) { lx_next(&lx); len = (int)parse_rel(&lx); }
-							if (lx.cur.type == T_RPAREN) lx_next(&lx);
-							{
-								int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl; int l = len; if (l < 0) l = 0; if (i0 + l > sl) l = sl - i0;
-								char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1; memcpy(tmp, s + i0, l); tmp[l] = 0;
-								SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
-								sarray_set(sa, subs, nsubs, tmp);
-							}
-						}
-					}
-					else if (_stricmp(srcname, "TRM$") == 0) {
-						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-						{
-							const char* s = ""; if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
-							else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
-								Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
-							}
-							if (lx.cur.type == T_RPAREN) lx_next(&lx);
-							{
-								size_t n = strlen(s), a = 0, b = n; while (a < b && isspace((unsigned char)s[a]))a++; while (b > a && isspace((unsigned char)s[b - 1]))b--;
-								char tmp[1024]; size_t l = b - a; if (l > sizeof(tmp) - 1) l = sizeof(tmp) - 1; memcpy(tmp, s + a, l); tmp[l] = 0;
-								SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
-								sarray_set(sa, subs, nsubs, tmp);
-							}
-						}
-					}
-
-					else if (lx.cur.type == T_LPAREN) {
-						int s2[MAX_DIMS], n2 = 0;
-						lx_next(&lx);
-						while (lx.cur.type != T_RPAREN && lx.cur.type != T_END) {
-							if (n2 >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); return -1; }
-							s2[n2++] = (int)parse_rel(&lx);
-							if (lx.cur.type == T_COMMA) { lx_next(&lx); continue; }
-							else break;
-						}
-						if (lx.cur.type != T_RPAREN) { printf("ERROR: missing ')'\n"); return -1; }
-						lx_next(&lx);
-						{
-							SArray* sb = sarray_find(srcname); const char* sval = sb ? sarray_get(sb, s2, n2) : "";
-							SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
-							sarray_set(sa, subs, nsubs, sval);
-						}
-					}
-					else {
-						/* source is scalar string var */
-						Variable* sv = find_var(srcname); const char* sval = (sv && sv->type == VT_STR && sv->str) ? sv->str : "";
-						SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
-						sarray_set(sa, subs, nsubs, sval);
-					}
-				}
-
-				else {
-					printf("ERROR: string array assignment needs a string\n"); return -1;
-				}
-			}
-			else {
-				double vnum = parse_rel(&lx);
-				{
-					Array* a = array_find(name); if (!a) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
-					array_set(a, subs, nsubs, vnum);
-				}
-			}
-			return 0;
-		}
-
-		/* Scalar assignment */
-		if (lx.cur.type != T_EQ) { printf("ERROR: '=' expected at line %d\n", currentLine); return -1; }
-		lx_next(&lx);
-
-		if (isStr) {
-			if (lx.cur.type == T_STRING)
-			{
-				char obuf[4096];
-				SBuf sb;
-				sbuf_init(&sb, obuf, sizeof(obuf));
-				parse_string_expr_to_buf(&lx, &sb);  // <-- parses "Hello, " + "World!" + STR$(N) + ...
-
-				Variable* v = find_var(name);
-				if (!v) v = create_string_var(name);				
-
-				if (!v) { printf("ERROR: OOM/VAR\n"); return -1; }
-				set_string_var(v, obuf);
-			}
-			else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
-				char sname[32]; strncpy(sname, lx.cur.text, sizeof(sname) - 1); sname[sizeof(sname) - 1] = 0; lx_next(&lx);
-				if (_stricmp(sname, "CHR$") == 0) {
-					if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-					{
-						double v = parse_rel(&lx); char ch[2]; ch[0] = (char)((int)v); ch[1] = 0;
-						Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(ch);
-					}
-					if (lx.cur.type == T_RPAREN) lx_next(&lx);
-				}
-				else if (_stricmp(sname, "STR$") == 0) {
-					if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-					{
-						double v = parse_rel(&lx); char buf[64];
-#ifdef _MSCVER
-						_snprintf(buf, sizeof(buf), "%.15g", v);
-#else
-						snprintf(buf, sizeof(buf), "%.15g", v);
-#endif
-						Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(buf);
-					}
-					if (lx.cur.type == T_RPAREN) lx_next(&lx);
-				}
-				else if (_stricmp(sname, "SEG$") == 0) {
-					if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-					{
-						const char* s = ""; int start = 1, len = 0;
-						if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
-						else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
-							Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
-						}
-						if (lx.cur.type == T_COMMA) { lx_next(&lx); start = (int)parse_rel(&lx); }
-						if (lx.cur.type == T_COMMA) { lx_next(&lx); len = (int)parse_rel(&lx); }
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-						{
-							int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl; int l = len; if (l < 0) l = 0; if (i0 + l > sl) l = sl - i0;
-							char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1; memcpy(tmp, s + i0, l); tmp[l] = 0;
-							Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(tmp);
-						}
-					}
-				}
-				else if (_stricmp(sname, "TRM$") == 0) {
-					if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
-					{
-						const char* s = ""; if (lx.cur.type == T_STRING) { s = lx.cur.text; lx_next(&lx); }
-						else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
-							Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
-						}
-						if (lx.cur.type == T_RPAREN) lx_next(&lx);
-						{
-							size_t n = strlen(s), a = 0, b = n; while (a < b && isspace((unsigned char)s[a]))a++; while (b > a && isspace((unsigned char)s[b - 1]))b--;
-							char tmp[1024]; size_t l = b - a; if (l > sizeof(tmp) - 1) l = sizeof(tmp) - 1; memcpy(tmp, s + a, l); tmp[l] = 0;
-							Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(tmp);
-						}
-					}
-				}
-				// YST Code
-				else if (_stricmp(sname, "LEFT$") == 0)
-				{
-					if (lx.cur.type == T_LPAREN) 
-						lx_next(&lx); 
-					
-					char str[1024];
-					str[0] = 0;
-					int n = 0;
-
-					if (lx.cur.type == T_STRING) 
-					{ 
-						strcpy (str,lx.cur.text); 
-						lx_next(&lx); 
-					}
-					else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) 
-					{
-						Variable* v = find_var(lx.cur.text); 
-						strcpy(str, (v && v->type == VT_STR && v->str) ? v->str : ""); 
-						lx_next(&lx);
-					}
-
-					if (lx.cur.type == T_COMMA) 
-					{ 
-						lx_next(&lx); 
-						n = (int)parse_rel(&lx);
-					}
-
-					if (lx.cur.type == T_RPAREN) 
-						lx_next(&lx);
-
-					int sl = (int)strlen(str); 
-					if (n < 0) 
-						n = 0; 
-					if (n > sl) 
-						n = sl;
-					
-					char tmp[1024]; 
-					int l = n; 
-					
-					if (l > (int)sizeof(tmp) - 1) // 1 for '\0'
-						l = (int)sizeof(tmp) - 1;
-					
-					memcpy(tmp, str, l); 
-					tmp[l] = '\0';
-
-					Variable* dst = ensure_var(name, 1); 
-					if (dst->str) 
-						free(dst->str); 
-					
-					dst->str = strdup_c(tmp);				
-				}
-
-				/* RIGHT$(s$, n) */
-				else if (_stricmp(sname, "RIGHT$") == 0) 
-				{
-					lx_next(&lx); 
-					if (lx.cur.type == T_LPAREN) 
-						lx_next(&lx);
-
-					char str[1024];
-					str[0] = 0;
-					int n = 0;
-
-					if (lx.cur.type == T_STRING) 
-					{ 
-						strcpy(str, lx.cur.text);
-						lx_next(&lx); 
-					}
-
-					else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) 
-					{
-						Variable* v = find_var(lx.cur.text); 
-						strcpy(str, (v&& v->type == VT_STR && v->str) ? v->str : "");
-						lx_next(&lx);
-					}
-					
-					if (lx.cur.type == T_COMMA) 
-					{ 
-						lx_next(&lx); 
-						n = (int)parse_rel(&lx); 
-					}
-
-					if (lx.cur.type == T_RPAREN) 
-						lx_next(&lx);
-
-					int sl = (int)strlen(str); 
-					if (n < 0) 
-						n = 0; 
-					if (n > sl) 
-						n = sl;
-
-					int i0 = sl - n; 
-					if (i0 < 0) 
-						i0 = 0;
-					
-					char tmp[1024]; 
-					int l = sl - i0; 
-					
-					if (l > (int)sizeof(tmp) - 1) 
-						l = (int)sizeof(tmp) - 1;
-					
-					memcpy(tmp, str + i0, l); 
-					tmp[l] = '\0';
-
-					Variable* dst = ensure_var(name, 1);
-					if (dst->str)
-						free(dst->str);
-
-					dst->str = strdup_c(tmp);
-				}
-
-				/* MID$(s$, start[, len]) -> same as SEG$ 
-				if (!strcmp(fname, "MID$")) {
-					lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-					const char* s = ""; int start = 1, len = 0;
-					if (lx->cur.type == T_STRING) { s = lx->cur.text; lx_next(lx); }
-					else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
-						Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
-					}
-					if (lx->cur.type == T_COMMA) { lx_next(lx); start = (int)parse_logic(lx); }
-					if (lx->cur.type == T_COMMA) { lx_next(lx); len = (int)parse_logic(lx); }
-					if (lx->cur.type == T_RPAREN) lx_next(lx);
-					if (start < 1) start = 1; int sl = (int)strlen(s); int i0 = start - 1; if (i0 > sl) i0 = sl;
-					int l = (len > 0 ? len : (sl - i0)); if (i0 + l > sl) l = sl - i0; if (l < 0) l = 0;
-					char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
-					memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
-				}
-
-				*/
-
-				//End YST Code
-
-				else if (lx.cur.type == T_LPAREN) {
-					int s2[MAX_DIMS], n2 = 0;
-					lx_next(&lx);
-					while (lx.cur.type != T_RPAREN && lx.cur.type != T_END) {
-						if (n2 >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); return -1; }
-						s2[n2++] = (int)parse_rel(&lx);
-						if (lx.cur.type == T_COMMA) { lx_next(&lx); continue; }
-						else break;
-					}
-					if (lx.cur.type != T_RPAREN) { printf("ERROR: missing ')'\n"); return -1; }
-					lx_next(&lx);
-					{
-						SArray* sb = sarray_find(sname); const char* sval = sb ? sarray_get(sb, s2, n2) : "";
-						Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(sval);
-					}
-				}
-				else {
-					Variable* sv = find_var(sname); const char* sval = (sv && sv->type == VT_STR && sv->str) ? sv->str : "";
-					Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(sval);
-				}
-			}
-			else { printf("ERROR: string assignment needs a string\n"); return -1; }
-		}
-		else { double vnum = parse_rel(&lx); ensure_var(name, 0)->num = vnum; }
-		return 0;
-	}
-
-	if (!duringRun) { printf("ERROR: syntax\n"); return -1; }
-	printf("ERROR: syntax at line %d\n", currentLine); return -1;
-
+	return exec_assignment_tail(lx, duringRun, currentLine);
 }
 
+/* Reset the READ pool at the beginning of each RUN. */
+void exec_data_reset_for_run(void) { data_clear(); }
