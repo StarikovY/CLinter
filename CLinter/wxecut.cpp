@@ -544,26 +544,63 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		printf("ERROR: LIST syntax\n"); return -1;
 	}
 
-	/* program SAVE/LOAD */
+	/* program SAVE/LOAD: R9.6 error handling; preserve fixed line limits. */
 	if (lx.cur.type == T_SAVE || lx.cur.type == T_LOAD)
 	{
 		int isLoad = (lx.cur.type == T_LOAD);
 		char fname[260]; fname[0] = 0;
 		if (!read_filename_after(&lx, fname, sizeof(fname))) { printf("ERROR: filename\n"); return -1; }
 		if (isLoad) {
-			FILE* f = fopen(fname, "rb"); char linebuf[1024]; int ln;
-			if (!f) { printf("ERROR: cannot open file\n"); return -1; }
+			FILE* f = fopen(fname, "rb");
+			char linebuf[1024];
+			int ln, nread, count = 0, valid = 1;
+			if (!f) { printf("ERROR: cannot open file %s\n", fname); return -1; }
+			/* Preflight with the same reader and limits as the actual load.
+			   A bad record must not destroy the program already in memory. */
+			for (;;) {
+				nread = fscanf(f, "%d", &ln);
+				if (nread == EOF) { if (ferror(f)) valid = 0; break; }
+				if (nread != 1 || ln < 0 || !fgets(linebuf, sizeof(linebuf), f)) { valid = 0; break; }
+				/* Do not accept a truncated physical line. No buffer-size change. */
+				if (!strchr(linebuf, '\n') && !feof(f)) {
+					int ch = fgetc(f);
+					if (ch != EOF) { valid = 0; break; }
+					if (ferror(f)) { valid = 0; break; }
+				}
+				if (++count > MAX_PROG_LINES) { valid = 0; break; }
+			}
+			if (ferror(f)) valid = 0;
+			if (!valid || fseek(f, 0, SEEK_SET) != 0) {
+				printf("ERROR: invalid or unreadable program file %s\n", fname);
+				fclose(f); return -1;
+			}
 			prog_clear();
 			while (fscanf(f, "%d", &ln) == 1) {
-				if (fgets(linebuf, sizeof(linebuf), f)) { char* p = linebuf; if (*p == ' ') p++; trim(p); prog_set_line(ln, p); }
+				if (fgets(linebuf, sizeof(linebuf), f)) {
+					char* q = linebuf;
+					if (*q == ' ') q++;
+					trim(q); prog_set_line(ln, q);
+				}
 			}
-			fclose(f); printf("Loaded %s (%d lines)\n", fname, g_prog_count); return 0;
-			data_rebuild_from_program();   /* program just changed -> rebuild DATA table */
+			{
+				int readFailed = ferror(f);
+				if (fclose(f) != 0) readFailed = 1;
+				if (readFailed) { printf("ERROR: read failure loading %s\n", fname); return -1; }
+			}
+			printf("Loaded %s (%d lines)\n", fname, g_prog_count);
+			return 0;
 		}
 		else {
-			FILE* f = fopen(fname, "wb"); int i; if (!f) { printf("ERROR: cannot write file %s\n", fname); return -1; }
-			sort_program(); for (i = 0; i < g_prog_count; i++) fprintf(f, "%d %s\n", g_prog[i].number, g_prog[i].text);
-			fclose(f); printf("Saved to %s\n", fname); return 0;
+			FILE* f = fopen(fname, "wb"); int i, failed = 0;
+			if (!f) { printf("ERROR: cannot write file %s\n", fname); return -1; }
+			sort_program();
+			for (i = 0; i < g_prog_count; i++) {
+				if (fprintf(f, "%d %s\n", g_prog[i].number, g_prog[i].text) < 0) { failed = 1; break; }
+			}
+			if (fflush(f) != 0 || ferror(f)) failed = 1;
+			if (fclose(f) != 0) failed = 1;
+			if (failed) { printf("ERROR: write failure saving %s\n", fname); return -1; }
+			printf("Saved to %s\n", fname); return 0;
 		}
 	}
 

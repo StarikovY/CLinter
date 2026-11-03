@@ -1,0 +1,168 @@
+'!'=0
+'#'=0
+'$'=63244
+'*'=(  )
+-=569XZilms
+0=-zsh
+'?'=0
+@=(  )
+ARGC=0
+CDPATH=''
+CLINTER_HOME=/Users/yst/Devs/CLinter
+COLORTERM=truecolor
+COLUMNS=120
+CPUTYPE=arm64
+EGID=20
+EUID=501
+FIGNORE=''
+FPATH=/opt/homebrew/share/zsh/site-functions:/usr/local/share/zsh/site-functions:/usr/share/zsh/site-functions:/usr/share/zsh/5.9/functions
+FUNCNEST=700
+GID=20
+HISTCHARS='!^#'
+HISTCMD=1005
+HISTFILE=/Users/yst/.zsh_sessions/1788BCD4-EC30-49C3-B744-9C28BD56D6AF.historynew
+HISTSIZE=2000
+HOME=/Users/yst
+HOMEBREW_CELLAR=/opt/homebrew/Cellar
+HOMEBREW_PREFIX=/opt/homebrew
+HOMEBREW_REPOSITORY=/opt/homebrew
+HOST=Yuris-MacBook-Pro-2.local
+IFS=$' \t\n\C-@'
+INFOPATH=/opt/homebrew/share/info:
+KEYBOARD_HACK=''
+KEYTIMEOUT=40
+LANG=en_US.UTF-8
+LINENO=8
+LINES=30
+LISTMAX=100
+LOGNAME=yst
+LaunchInstanceID=AA26EBF1-7D8B-4AB8-95A7-D9CA6CA0CDF0
+MACHTYPE=x86_64
+MAILCHECK=60
+MAILPATH=''
+MANPATH=''
+MATCH=r
+MBEGIN=1
+MEND=1
+MODULE_PATH=/usr/lib/zsh/5.9
+NULLCMD=cat
+OLDPWD=/Users/yst
+OPTARG=''
+OPTIND=1
+OSLogRateLimit=64
+OSTYPE=darwin25.0
+PATH='/Users/yst/Devs/CLinter/builds/drops/macos-arm64/bin/Debug:/opt/homebrew/opt/python@3.13/libexec/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/usr/local/share/dotnet:~/.dotnet/tools:/opt/homebrew/bin:/Users/yst/Devs/NcNsCom/builds/drops/macos-arm64/bin/Debug'
+PPID=63243
+PROMPT='%* %~> '
+PROMPT2='%_> '
+PROMPT3='?# '
+PROMPT4='+%N:%i> '
+PS1='%* %~> '
+PS2='%_> '
+PS3='?# '
+PS4='+%N:%i> '
+PSVAR=''
+PWD=/Users/yst/Devs/CLinter
+RANDOM=16803
+READNULLCMD=more
+SAVEHIST=1000
+SECONDS=125
+SECURITYSESSIONID=186ba
+SHELL=/bin/zsh
+SHELL_SESSION_DID_HISTORY_CHECK=1
+SHELL_SESSION_DID_INIT=1
+SHELL_SESSION_DIR=/Users/yst/.zsh_sessions
+SHELL_SESSION_FILE=/Users/yst/.zsh_sessions/1788BCD4-EC30-49C3-B744-9C28BD56D6AF.session
+SHELL_SESSION_HISTFILE=/Users/yst/.zsh_sessions/1788BCD4-EC30-49C3-B744-9C28BD56D6AF.history
+SHELL_SESSION_HISTFILE_NEW=/Users/yst/.zsh_sessions/1788BCD4-EC30-49C3-B744-9C28BD56D6AF.historynew
+SHELL_SESSION_HISTFILE_SHARED=/Users/yst/.zsh_history
+SHELL_SESSION_HISTORY=1
+SHELL_SESSION_TIMESTAMP_FILE=/Users/yst/.zsh_sessions/_expiration_check_timestamp
+SHLVL=1
+SPROMPT='zsh: correct '\''%R'\'' to '\''%r'\'' [nyae]? '
+SSH_AUTH_SOCK=/var/run/com.apple.launchd.ploXgL6diw/Listeners
+TERM=xterm-256color
+TERM_PROGRAM=Apple_Terminal
+TERM_PROGRAM_VERSION=470.2
+TERM_SESSION_ID=1788BCD4-EC30-49C3-B744-9C28BD56D6AF
+TIMEFMT='%J  %U user %S system %P cpu %*E total'
+TMPDIR=/var/folders/bn/nlnsdgxs2gl3gkldp_dnbyyw0000gn/T/
+TMPPREFIX=/tmp/zsh
+TRY_BLOCK_ERROR=-1
+TRY_BLOCK_INTERRUPT=-1
+TTY=/dev/ttys007
+TTYIDLE=0
+UID=501
+USER=yst
+USERNAME=yst
+VENDOR=apple
+WATCH
+WORDCHARS='*?_-.[]~=/&;!#$%^(){}<>'
+XPC_FLAGS=0x0
+XPC_SERVICE_NAME=0
+ZSH_ARGZERO=-zsh
+ZSH_EVAL_CONTEXT=toplevel
+ZSH_NAME=zsh
+ZSH_PATCHLEVEL=zsh-5.9-0-g73d3173
+ZSH_SUBSHELL=0
+ZSH_VERSION=5.9
+_=set
+__CFBundleIdentifier=com.apple.Terminal
+aliases
+argv=(  )
+builtins
+cdpath=(  )
+commands
+dirstack
+dis_aliases
+dis_builtins
+dis_functions
+dis_functions_source
+dis_galiases
+dis_patchars
+dis_reswords
+dis_saliases
+fignore=(  )
+fpath=( /opt/homebrew/share/zsh/site-functions /usr/local/share/zsh/site-functions /usr/share/zsh/site-functions /usr/share/zsh/5.9/functions )
+funcfiletrace
+funcsourcetrace
+funcstack
+functions
+functions_source
+functrace
+galiases
+histchars='!^#'
+history
+historywords
+jobdirs
+jobstates
+jobtexts
+key=( [Backspace]=$'\C-H' [Delete]=$'\C-[[3~' [Down]=$'\C-[OB' [End]=$'\C-[OF' [F1]=$'\C-[OP' [F10]=$'\C-[[21~' [F11]=$'\C-[[23~' [F12]=$'\C-[[24~' [F13]=$'\C-[[1;2P' [F14]=$'\C-[[1;2Q' [F15]=$'\C-[[1;2R' [F16]=$'\C-[[1;2S' [F17]=$'\C-[[15;2~' [F18]=$'\C-[[17;2~' [F19]=$'\C-[[18;2~' [F2]=$'\C-[OQ' [F20]=$'\C-[[19;2~' [F3]=$'\C-[OR' [F4]=$'\C-[OS' [F5]=$'\C-[[15~' [F6]=$'\C-[[17~' [F7]=$'\C-[[18~' [F8]=$'\C-[[19~' [F9]=$'\C-[[20~' [Home]=$'\C-[OH' [Insert]=$'\C-[[2~' [Left]=$'\C-[OD' [PageDown]=$'\C-[[6~' [PageUp]=$'\C-[[5~' [Right]=$'\C-[OC' [Up]=$'\C-[OA' )
+keymaps
+mailpath=(  )
+manpath=(  )
+module_path=( /usr/lib/zsh/5.9 )
+modules
+nameddirs
+options
+parameters
+patchars
+path=( /Users/yst/Devs/CLinter/builds/drops/macos-arm64/bin/Debug /opt/homebrew/opt/python@3.13/libexec/bin /opt/homebrew/bin /opt/homebrew/sbin /usr/local/bin /System/Cryptexes/App/usr/bin /usr/bin /bin /usr/sbin /sbin /var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin /var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin /var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin /pkg/env/global/bin /Library/Apple/usr/bin /usr/local/share/dotnet '~/.dotnet/tools' /opt/homebrew/bin /Users/yst/Devs/NcNsCom/builds/drops/macos-arm64/bin/Debug )
+pipestatus=( 0 )
+precmd_functions=( update_terminal_cwd )
+prompt='%* %~> '
+psvar=(  )
+reswords
+saliases
+signals=( EXIT HUP INT QUIT ILL TRAP ABRT EMT FPE KILL BUS SEGV SYS PIPE ALRM TERM URG STOP TSTP CONT CHLD TTIN TTOU IO XCPU XFSZ VTALRM PROF WINCH INFO USR1 USR2 ZERR DEBUG )
+status=0
+termcap
+terminfo
+userdirs
+usergroups
+watch
+widgets
+zle_bracketed_paste=( $'\C-[[?2004h' $'\C-[[?2004l' )
+zsh_eval_context=( toplevel )
+zsh_scheduled_events
+zshexit_functions=( shell_session_update )

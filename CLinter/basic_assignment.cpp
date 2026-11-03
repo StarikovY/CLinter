@@ -149,6 +149,15 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 		if (lx.cur.type != T_EQ) { printf("ERROR: '=' expected at line %d\n", currentLine); return -1; }
 		lx_next(&lx);
 
+		if (isStr && lx.cur.type == T_IDENT &&
+            (!strcmp(lx.cur.text,"LEFT$") || !strcmp(lx.cur.text,"RIGHT$") ||
+             !strcmp(lx.cur.text,"MID$") || !strcmp(lx.cur.text,"SEG$"))) {
+            char result[4096]; SBuf sb;
+            sbuf_init(&sb, result, sizeof(result));
+            parse_string_expr_to_buf(&lx, &sb);
+            set_string_var(ensure_var(name, 1), result);
+            return 0;
+        }
 		if (isStr) {
 			if (lx.cur.type == T_STRING)
 			{

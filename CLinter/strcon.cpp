@@ -39,7 +39,38 @@ void sbuf_cat_num(SBuf* sb, double x) {
     sbuf_cat(sb, tmp);
 }
 
+/* R3/R4: shared string primitive evaluation; 1-based positions. */
+int parse_string_primitive(Lexer* lx, SBuf* sb) {
+    char fn[32], source[4096]; SBuf inner;
+    int start = 1, count = 0, has_count = 0, length, offset;
+    if (lx->cur.type != T_IDENT) return 0;
+    strncpy(fn, lx->cur.text, sizeof(fn)-1); fn[sizeof(fn)-1]=0;
+    if (strcmp(fn,"LEFT$") && strcmp(fn,"RIGHT$") && strcmp(fn,"MID$") && strcmp(fn,"SEG$")) return 0;
+    lx_next(lx);
+    if (lx->cur.type != T_LPAREN) return 1;
+    lx_next(lx);
+    sbuf_init(&inner, source, sizeof(source));
+    parse_string_expr_to_buf(lx, &inner);
+    if (lx->cur.type == T_COMMA) {
+        lx_next(lx);
+        start = (int)parse_rel(lx);
+        if (lx->cur.type == T_COMMA) { lx_next(lx); count=(int)parse_rel(lx); has_count=1; }
+    }
+    if (lx->cur.type == T_RPAREN) lx_next(lx);
+    length=(int)strlen(source);
+    if (!strcmp(fn,"LEFT$")) { offset=0; count=start; }
+    else if (!strcmp(fn,"RIGHT$")) { count=start; if(count<0) count=0; if(count>length) count=length; offset=length-count; }
+    else { if(start<1) start=1; offset=start-1; if(offset>length) offset=length;
+           if (!has_count) count=length-offset; }
+    if(count<0) count=0;
+    if(count>length-offset) count=length-offset;
+    sbuf_cat_n(sb, source+offset, (size_t)count);
+    return 1;
+}
+
 void parse_string_term_to_buf(Lexer* lx, SBuf* sb) {
+    if (parse_string_primitive(lx, sb)) return;
+    if (parse_string_primitive(lx, sb)) return;
     if (lx->cur.type == T_STRING) {
         sbuf_cat(sb, lx->cur.text);
         lx_next(lx);

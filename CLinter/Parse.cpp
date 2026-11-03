@@ -19,6 +19,7 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
+#include <limits.h>
 
 #include "runtime.h"
 #include "parse.h"
@@ -233,7 +234,7 @@ static double parse_factor(Lexer* lx) {
         }
         if (!strcmp(fname, "LOG10")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return log10(v); }
+            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return v > 0.0 ? log10(v) : 0.0; }
         }
 
         if (!strcmp(fname, "LEN")) {
@@ -351,52 +352,34 @@ static double parse_factor(Lexer* lx) {
             return (double)(g_print_col + 1);
         }
 
-        /* INSTR(hay$, needle$) -> 1-based index (0 if not found) */
+        /* INSTR([start,] hay$, needle$) - 1-based, 0 if not found. */
         if (!strcmp(fname, "INSTR")) {
-            char* p1 = NULL, * p2 = NULL;
+            char hay[4096]="", needle[4096]="";
+            int start=1; const char* found;
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-            {
-                const char* hay = NULL, * nee = NULL;
-                if (lx->cur.type == T_STRING) {
-                    hay = lx->cur.text;
-                    p1 = (char*)malloc(strlen(hay) + 1);
-                    if (p1 != NULL)
-                        strcpy(p1, hay);
-                    else
-                        return 0.0;
-                    lx_next(lx);
-                }
-                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
-                    Variable* v = find_var(lx->cur.text); hay = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
-                }
+            if (lx->cur.type == T_NUMBER) {
+                start=(int)parse_rel(lx);
                 if (lx->cur.type == T_COMMA) lx_next(lx);
-
-                if (lx->cur.type == T_STRING)
-                {
-                    nee = lx->cur.text;
-                    p2 = (char*)malloc(strlen(nee) + 1);
-                    if (p2 != NULL)
-                        strcpy(p2, nee);
-                    else
-                        return 0.0;
-                    lx_next(lx);
-                }
-
-                else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
-                    Variable* v = find_var(lx->cur.text); nee = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
-                }
-                if (lx->cur.type == T_RPAREN) lx_next(lx);
-                if (!p1 || !p2) return 0.0;
-                {
-                    const char* p = strstr(p1, p2);
-                    int reti = (int)(p - p1);
-                    double ret = (double)(reti);
-                    ret++;
-                    free(p1);
-                    free(p2);
-                    return p ? ret : 0.0;
-                }
             }
+            if (lx->cur.type == T_STRING) {
+                strncpy(hay,lx->cur.text,sizeof(hay)-1); lx_next(lx);
+            } else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                Variable* v=find_var(lx->cur.text);
+                if (v && v->type==VT_STR && v->str) strncpy(hay,v->str,sizeof(hay)-1);
+                lx_next(lx);
+            }
+            if (lx->cur.type == T_COMMA) lx_next(lx);
+            if (lx->cur.type == T_STRING) {
+                strncpy(needle,lx->cur.text,sizeof(needle)-1); lx_next(lx);
+            } else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
+                Variable* v=find_var(lx->cur.text);
+                if (v && v->type==VT_STR && v->str) strncpy(needle,v->str,sizeof(needle)-1);
+                lx_next(lx);
+            }
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            if (start<1 || start>(int)strlen(hay)+1) return 0.0;
+            found=strstr(hay+start-1,needle);
+            return found ? (double)(found-hay+1) : 0.0;
         }
 
         /* TAB(n) � in numeric context just returns n (PRINT handles spacing) */
@@ -498,14 +481,16 @@ static double parse_factor(Lexer* lx) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             long a = (long)parse_logic(lx); if (lx->cur.type == T_COMMA) lx_next(lx);
             long b = (long)parse_logic(lx); if (lx->cur.type == T_RPAREN) lx_next(lx);
-            if (b == 0) return 0.0;
+            if (b == 0) return 0.0; /* preserve existing zero-divisor convention */
+            if (b == -1) return 0.0; /* LONG_MIN / -1 is undefined */
             return (double)(a % b);
         }
         if (!strcmp(fname, "IDIV")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             long a = (long)parse_logic(lx); if (lx->cur.type == T_COMMA) lx_next(lx);
             long b = (long)parse_logic(lx); if (lx->cur.type == T_RPAREN) lx_next(lx);
-            if (b == 0) return 0.0;
+            if (b == 0) return 0.0; /* preserve existing zero-divisor convention */
+            if (b == -1 && a == LONG_MIN) return -(double)LONG_MIN;
             return (double)(a / b);
         }
 
@@ -550,7 +535,7 @@ static double parse_factor(Lexer* lx) {
             if (lx->cur.type == T_LPAREN) lx_next(lx);
             double v = parse_rel(lx);
             if (lx->cur.type == T_RPAREN) lx_next(lx);
-            return log(v);
+            return v > 0.0 ? log(v) : 0.0;
         }
         if (strcmp(fname, "POW") == 0) { /* two args */
             lx_next(lx);
@@ -566,7 +551,7 @@ static double parse_factor(Lexer* lx) {
             if (lx->cur.type == T_LPAREN) lx_next(lx);
             double v = parse_rel(lx);
             if (lx->cur.type == T_RPAREN) lx_next(lx);
-            return sqrt(v);
+            return v >= 0.0 ? sqrt(v) : 0.0;
         }
         if (strcmp(fname, "ABS") == 0) {
             lx_next(lx);
@@ -630,7 +615,9 @@ static double parse_term(Lexer* lx)
     while (lx->cur.type == T_STAR || lx->cur.type == T_SLASH) {
         TokType op = lx->cur.type; lx_next(lx);
         double rhs = parse_power(lx);     /* was parse_factor */
-        if (op == T_STAR) v *= rhs; else v /= rhs;
+        if (op == T_STAR) v *= rhs;
+        else if (rhs != 0.0) v /= rhs;
+        else v = 0.0; /* match IDIV/MOD zero-divisor convention */
     }
     return v;
 }
