@@ -6,6 +6,7 @@
 #include "parse.h"
 #include "runtime.h"
 #include "strcon.h"
+#include "keyboard.h"
 
 void sbuf_init(SBuf* sb, char* buf, size_t cap) {
     sb->buf = buf;
@@ -69,8 +70,35 @@ int parse_string_primitive(Lexer* lx, SBuf* sb) {
 }
 
 void parse_string_term_to_buf(Lexer* lx, SBuf* sb) {
+    if (lx->cur.type == T_IDENT && !strcmp(lx->cur.text, "INKEY$")) {
+        int ch;
+        lx_next(lx);
+        if (lx->cur.type == T_LPAREN) {
+            lx_next(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+        }
+        ch = clinter_inkey();
+        if (ch > 0 && ch < 256) { char c = (char)ch; sbuf_cat_n(sb, &c, 1); }
+        return;
+    }
+
     if (parse_string_primitive(lx, sb)) return;
-    if (parse_string_primitive(lx, sb)) return;
+    if (lx->cur.type == T_IDENT && !strcmp(lx->cur.text, "IF$")) {
+        double condition;
+        char yes[4096], no[4096]; SBuf a, b;
+        lx_next(lx);
+        if (lx->cur.type != T_LPAREN) return;
+        lx_next(lx); condition = parse_rel(lx);
+        if (lx->cur.type != T_COMMA) return;
+        lx_next(lx); sbuf_init(&a, yes, sizeof(yes));
+        parse_string_expr_to_buf(lx, &a);
+        if (lx->cur.type != T_COMMA) return;
+        lx_next(lx); sbuf_init(&b, no, sizeof(no));
+        parse_string_expr_to_buf(lx, &b);
+        if (lx->cur.type == T_RPAREN) lx_next(lx);
+        sbuf_cat(sb, condition != 0.0 ? yes : no);
+        return;
+    }
     if (lx->cur.type == T_STRING) {
         sbuf_cat(sb, lx->cur.text);
         lx_next(lx);

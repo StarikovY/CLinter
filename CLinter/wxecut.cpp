@@ -1,4 +1,3 @@
-
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -8,35 +7,31 @@
 #include "printfunc.h"
 #include "strcon.h"
 #include "basic_fileio.h"
+#include "screen.h"
+#include "keyboard.h"
 int exec_assignment_tail(Lexer lx, int duringRun, int currentLine);
 extern int exec_multi(const char*, int, int, int*);
-
 static int read_filename_after(Lexer *lx, char *out, size_t cap) {
     lx_next(lx);
     if (lx->cur.type != T_STRING && lx->cur.type != T_IDENT) return 0;
     strncpy(out,lx->cur.text,cap-1); out[cap-1]=0;
     return 1;
 }
-
 /* -------- DATA pool (lazy build) -------- */
 static char** g_data_vals = NULL;
 static int    g_data_count = 0;
 static int    g_data_ptr = 0;
 static int    g_data_built = 0;
-
 /* Example structure: adjust names to your existing ones */
 // extern int g_data_index;  /* current read index */
 // extern int g_data_count;
-
 /* new (minimal) */
 static int* g_data_lines = NULL;   /* line number for each DATA item */
 static int    g_data_cap = 0;      /* shared capacity for vals/lines */
-
 static void data_ensure_cap(int need) {
 	if (need <= g_data_cap) return;
 	int newcap = g_data_cap ? g_data_cap * 2 : 64;
 	while (newcap < need) newcap *= 2;
-
 	char** nv = (char**)realloc(g_data_vals, newcap * sizeof(char*));
 	int* nl = (int*)realloc(g_data_lines, newcap * sizeof(int));
 	if (!nv || !nl) { /* handle OOM simply */
@@ -47,7 +42,6 @@ static void data_ensure_cap(int need) {
 	g_data_lines = nl;
 	g_data_cap = newcap;
 }
-
 // g_trace_enabled = 0; 
 static void data_clear(void) {
     int i;
@@ -58,14 +52,12 @@ static void data_clear(void) {
     g_data_vals = NULL; g_data_count = 0; g_data_ptr = 0; g_data_built = 0;
     free(g_data_lines); g_data_lines = NULL; g_data_cap = 0;
 }
-
 static void data_push(const char* s) {
     char** nv = (char**)realloc(g_data_vals, sizeof(char*) * (g_data_count + 1));
     if (!nv) return;
     g_data_vals = nv;
     g_data_vals[g_data_count++] = strdup_c(s ? s : "");
 }
-
 static void data_build_from_program(void) {
     int i;
     data_clear();
@@ -102,18 +94,15 @@ static void data_build_from_program(void) {
     }
     g_data_built = 1;
 }
-
 static const char* data_next_string(void) {
     if (!g_data_built) data_build_from_program();
     if (g_data_ptr >= g_data_count) { printf("ERROR: OUT OF DATA\n"); return ""; }
     return g_data_vals[g_data_ptr++];
 }
-
 static double data_next_number(void) {
     const char* s = data_next_string();
     return atof(s);
 }
-
 static void dump_vars(void) {
     int i; for (i = 0; i < g_var_count; i++) {
         if (g_vars[i].type == VT_STR) printf("%s$ = \"%s\"\n", g_vars[i].name, g_vars[i].str ? g_vars[i].str : "");
@@ -141,24 +130,17 @@ static void dump_stack(void) {
     printf("GOSUB stack depth=%d\n", g_gosub_top);
     for (k = g_gosub_top - 1; k >= 0; k--) printf("  return to line %d\n", g_gosub_stack[k]);
 }
-
-
-
 /* ------- RENUM support ------- */
-
 /* find mapped line number; returns old if unmapped */
 static int renum_lookup(const int* oldL, const int* newL, int n, int oldv) {
     int i; for (i = 0; i < n; i++) if (oldL[i] == oldv) return newL[i];
     return oldv;
 }
-
-
 /* Rebuild a statement string, replacing numbers after THEN/GOTO/GOSUB using map. */
 static char* renum_rewrite_stmt(const char* src, const int* oldL, const int* newL, int nmap) {
     Lexer lx; char outbuf[MAX_LINE_LEN * 2]; size_t oi = 0;
     int expectLineNum = 0; /* 1 if last emitted token was THEN/GOTO/GOSUB */
     lx_init(&lx, src); lx_next(&lx);
-
     /* helper: append a token-sized string with a leading space if needed */
 #define APPEND_STR(S) do{ \
         const char*_s=(S); size_t _len=strlen(_s); \
@@ -166,7 +148,6 @@ static char* renum_rewrite_stmt(const char* src, const int* oldL, const int* new
         if(oi+_len>=sizeof(outbuf)) _len = sizeof(outbuf)-1-oi; \
         memcpy(outbuf+oi,_s,_len); oi+=_len; outbuf[oi]=0; \
     }while(0)
-
     outbuf[0] = 0;
     while (lx.cur.type != T_END) {
         switch (lx.cur.type) {
@@ -189,11 +170,9 @@ static char* renum_rewrite_stmt(const char* src, const int* oldL, const int* new
             lx_next(&lx);
         } break;
                      // #ifdef TEST
-
         case T_THEN:   APPEND_STR("THEN");  expectLineNum = 1; lx_next(&lx); break;
         case T_GOTO:   APPEND_STR("GOTO");  expectLineNum = 1; lx_next(&lx); break;
         case T_GOSUB:  APPEND_STR("GOSUB"); expectLineNum = 1; lx_next(&lx); break;
-
         case T_PLUS:   APPEND_STR("+");  lx_next(&lx); break;
         case T_MINUS:  APPEND_STR("-");  lx_next(&lx); break;
         case T_STAR:   APPEND_STR("*");  lx_next(&lx); break;
@@ -211,7 +190,6 @@ static char* renum_rewrite_stmt(const char* src, const int* oldL, const int* new
         default:       lx_next(&lx); break;
         }
     }
- 
 // #endif // TEST
 #undef APPEND_STR
 	return strdup_c(outbuf);
@@ -223,7 +201,6 @@ static char* renum_rewrite_stmt(const char* src, const int* oldL, const int* new
 	 - VT_NUM / VT_STR enum values
 	 - ensure_var(const char* name, int isString) -> Variable*
 */
-
 static char* dup_cstr(const char* s) {
 	if (!s) s = "";
 	size_t n = strlen(s) + 1;
@@ -231,7 +208,6 @@ static char* dup_cstr(const char* s) {
 	if (p) memcpy(p, s, n);
 	return p;
 }
-
 Variable* create_string_var(const char* name) {
 	/* ensure var exists and is marked as string */
 	Variable* v = ensure_var(name, 1);
@@ -243,7 +219,6 @@ Variable* create_string_var(const char* name) {
 	if (!v->str) { v->str = dup_cstr(""); }
 	return v;
 }
-
 void set_string_var(Variable* v, const char* s) {
 	if (!v) return;
 	if (v->type != VT_STR) {
@@ -253,7 +228,6 @@ void set_string_var(Variable* v, const char* s) {
 	if (v->str) { free(v->str); v->str = NULL; }
 	v->str = dup_cstr(s);
 }
-
 Variable* create_numeric_var(const char* name) {
 	/* ensure var exists and is marked as numeric */
 	Variable* v = ensure_var(name, 0);
@@ -263,15 +237,12 @@ Variable* create_numeric_var(const char* name) {
 	if (v->str) { free(v->str); v->str = NULL; }
 	return v;
 }
-
 void set_numeric_var(Variable* v, double val) {
 	if (!v) return;
 	v->type = VT_NUM;
 	v->num = val;
 	if (v->str) { free(v->str); v->str = NULL; }
 }
-
-
 /* Execute one assignment statement:
    Accepts either:  LET <var>[subs...] = <expr>
 			   or:  <var>[subs...] = <expr>
@@ -284,16 +255,13 @@ static int exec_assignment(Lexer* lx) {
 		 - support string/numeric scalars and arrays as you already do
 		 - parse '=' and RHS using your existing expression functions
 	*/
-
 	/* ---------- START: paste your existing assignment logic ---------- */
 	/* Example skeleton (replace with your real code): */
 	if (lx->cur.type == T_LET) lx_next(lx);
-
 	if (lx->cur.type != T_IDENT) { printf("ERROR: variable expected\n"); return -1; }
 	char name[64]; strncpy(name, lx->cur.text, sizeof(name) - 1); name[sizeof(name) - 1] = 0;
 	int isStr = is_string_var_name(name);
 	lx_next(lx);
-
 	/* optional array subscripts */
 	int subs[MAX_DIMS], nsubs = 0;
 	int isArray = 0;
@@ -307,7 +275,6 @@ static int exec_assignment(Lexer* lx) {
 		}
 		if (lx->cur.type == T_RPAREN) lx_next(lx);
 	}
-
 	if (lx->cur.type != T_EQ) { printf("ERROR: '=' expected\n"); return -1; }
 	lx_next(lx);
 
@@ -441,12 +408,25 @@ static int run_if_single_stmt(Lexer* plx, int currentLine, int* outJump) {
 
 
 /* ----------------- executor ----------------- */
+extern int matrix_statement(Lexer *lx, double (*read_number)(void));
+extern int pycompat_randomize_statement(Lexer *lx);
+
 int exec_statement(const char* src, int duringRun, int currentLine, int* outJump)
 {
 	Lexer lx;
 	lx_init(&lx, src);
 	lx_next(&lx);
 
+    if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text, "PAUSE") == 0) {
+        double seconds;
+        lx_next(&lx);
+        seconds = parse_rel(&lx);
+        if (lx.cur.type != T_END) { puts("ERROR: PAUSE syntax"); return -1; }
+        return clinter_pause(seconds);
+    }
+	if (lx.cur.type == T_IDENT && (_stricmp(lx.cur.text, "SCREEN") == 0 || _stricmp(lx.cur.text, "CLS") == 0 || _stricmp(lx.cur.text, "LOCATE") == 0 || _stricmp(lx.cur.text, "COLOR") == 0)) return screen_statement(&lx);
+	if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text, "RANDOMIZE") == 0) return pycompat_randomize_statement(&lx);
+	if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text, "MAT") == 0) return matrix_statement(&lx, data_next_number);
 	if (lx.cur.type == T_REM) return 0;
 	if (lx.cur.type == T_DATA) return 0;
 

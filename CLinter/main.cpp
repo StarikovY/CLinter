@@ -469,7 +469,7 @@ int main(int argc, char* argv[])
 		printf("     *       *  *  *   *    *      *\n");
 		printf("     ******  *  *  *   * *  ****   *\n");
 		printf("  The interpreter of BASIC Programming language\n");
-		printf("           Yuri Starikov - 1986 - 2025.\n");
+		printf("           Yuri Starikov - 1986 - 2026.\n");
 		printf("           This version was written on C++\n");
 		printf("           Version: %s at %s\n", __DATE__, __TIME__);
 		printf("           Type HELP for help\nREADY.\n");

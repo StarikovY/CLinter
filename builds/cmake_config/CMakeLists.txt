@@ -4,8 +4,21 @@ project(CLinter LANGUAGES C CXX)
 # All build definitions live under builds/cmake_config.
 get_filename_component(CLINTER_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(CLINTER_SRC_DIR "${CLINTER_REPO_ROOT}/CLinter")
-if(NOT DEFINED CLINTER_DROP_ROOT)
-  set(CLINTER_DROP_ROOT "${CLINTER_REPO_ROOT}/builds/drops/local")
+if(NOT DEFINED CLINTER_DROP_ROOT OR CLINTER_DROP_ROOT STREQUAL "")
+  if(APPLE)
+    set(CLINTER_PLATFORM "macos-arm64")
+  elseif(WIN32)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
+      set(CLINTER_PLATFORM "win-arm64")
+    else()
+      set(CLINTER_PLATFORM "win-amd64")
+    endif()
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(CLINTER_PLATFORM "linux-x64")
+  else()
+    message(FATAL_ERROR "Unsupported platform: specify CLINTER_DROP_ROOT")
+  endif()
+  set(CLINTER_DROP_ROOT "${CLINTER_REPO_ROOT}/builds/drops/${CLINTER_PLATFORM}")
 endif()
 set(CLINTER_SOURCES
   "${CLINTER_SRC_DIR}/basic_repl.cpp"
@@ -13,6 +26,10 @@ set(CLINTER_SOURCES
   "${CLINTER_SRC_DIR}/basic_assignment.cpp"
   "${CLINTER_SRC_DIR}/data_table.cpp"
   "${CLINTER_SRC_DIR}/help.cpp"
+  "${CLINTER_SRC_DIR}/matrix.cpp"
+  "${CLINTER_SRC_DIR}/pycompat.cpp"
+  "${CLINTER_SRC_DIR}/screen.cpp"
+  "${CLINTER_SRC_DIR}/keyboard.cpp"
   "${CLINTER_SRC_DIR}/main.cpp"
   "${CLINTER_SRC_DIR}/Parse.cpp"
   "${CLINTER_SRC_DIR}/printfunc.cpp"
@@ -21,6 +38,10 @@ set(CLINTER_SOURCES
 )
 set_source_files_properties(
   "${CLINTER_SRC_DIR}/Parse.cpp"
+  "${CLINTER_SRC_DIR}/matrix.cpp"
+  "${CLINTER_SRC_DIR}/pycompat.cpp"
+  "${CLINTER_SRC_DIR}/screen.cpp"
+  "${CLINTER_SRC_DIR}/keyboard.cpp"
   "${CLINTER_SRC_DIR}/wxecut.cpp"
   "${CLINTER_SRC_DIR}/basic_fileio.cpp"
   "${CLINTER_SRC_DIR}/basic_assignment.cpp"
@@ -43,7 +64,9 @@ endif()
 include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 COMPONENTS Interpreter REQUIRED)
-  set(CLINTER_REGRESSION_RUNNER "${CLINTER_REPO_ROOT}/tests/regression/runner.py")
+  set(CLINTER_REGRESSION_RUNNER "${CLINTER_REPO_ROOT}/Tests/regression/runner.py")
+  add_test(NAME clinter_mat COMMAND "$<TARGET_FILE:CLinter>" "${CLINTER_REPO_ROOT}/Tests/regression/auto/MatTest.bas")
+  set_tests_properties(clinter_mat PROPERTIES PASS_REGULAR_EXPRESSION "MAT PASS" TIMEOUT 20 LABELS "CLinter;regression")
   foreach(case_name IN ITEMS core_flow data_read string_ops math strings if arrays arrays_extended basic_1 factorial regression)
     add_test(NAME "clinter_${case_name}"
       COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REGRESSION_RUNNER}"
@@ -55,4 +78,42 @@ if(BUILD_TESTING)
       set_tests_properties(clinter_basic_1 PROPERTIES DISABLED TRUE)
     endif()
   endforeach()
+endif()
+
+# Day 4 MAT I/O and negative regression cases.
+if(BUILD_TESTING)
+  foreach(mat_case IN ITEMS read input singular dimension_add dimension_multiply dimension_transpose dimension_inverse input_invalid)
+    add_test(NAME "clinter_mat_${mat_case}"
+      COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/mat_cases.py"
+        --exe "$<TARGET_FILE:CLinter>" --case "${mat_case}")
+    set_tests_properties("clinter_mat_${mat_case}" PROPERTIES TIMEOUT 20 LABELS "CLinter;regression;MAT")
+  endforeach()
+endif()
+
+# PYLinter Stage 1 compatibility regression.
+if(BUILD_TESTING)
+  add_test(NAME clinter_pycompat_stage1
+    COMMAND "$<TARGET_FILE:CLinter>" "${CLINTER_REPO_ROOT}/Tests/regression/auto/PyFunctionsTest.bas")
+  set_tests_properties(clinter_pycompat_stage1 PROPERTIES
+    PASS_REGULAR_EXPRESSION "PYFUNCTIONS PASS" TIMEOUT 20 LABELS "CLinter;regression;PYLinter")
+endif()
+
+# PYLinter Stage 2: ANSI-backed MSX text screen, including original user fixture.
+if(BUILD_TESTING)
+  add_test(NAME clinter_screen_colorscreen1
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/screen_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case colorscreen1
+      --file "${CLINTER_REPO_ROOT}/Tests/regression/auto/ColorScreen1.bas")
+  add_test(NAME clinter_screen_invalid
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/screen_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case invalid)
+  set_tests_properties(clinter_screen_colorscreen1 clinter_screen_invalid PROPERTIES
+    TIMEOUT 20 LABELS "CLinter;regression;PYLinter;SCREEN")
+endif()
+
+# PYLinter Stage 3: INKEY$ and PAUSE noninteractive smoke test.
+if(BUILD_TESTING)
+  add_test(NAME clinter_pycompat_inkey
+    COMMAND "$<TARGET_FILE:CLinter>" "${CLINTER_REPO_ROOT}/Tests/regression/auto/InkeyTest.bas")
+  set_tests_properties(clinter_pycompat_inkey PROPERTIES PASS_REGULAR_EXPRESSION "INKEY PASS" TIMEOUT 20 LABELS "CLinter;regression;PYLinter;INKEY")
 endif()

@@ -1,1 +1,4 @@
-cmake -S ../cmake_config -B builds/drops/macos-arm64/cmake/Debug -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+exec "$HERE/build_mac.sh" Debug

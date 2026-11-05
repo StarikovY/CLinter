@@ -1,1 +1,4 @@
-cmake --build ../drops/macos-arm64/cmake/Debug --parallel 8
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+exec "$HERE/build_mac.sh" Debug

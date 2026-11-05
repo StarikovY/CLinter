@@ -20,6 +20,7 @@
 #include <math.h>
 #include <ctype.h>
 #include <limits.h>
+#include "pycompat.h"
 
 #include "runtime.h"
 #include "parse.h"
@@ -150,6 +151,7 @@ void lx_next(Lexer* lx) {
         case '-': lx->cur.type = T_MINUS; return;
         case '*': lx->cur.type = T_STAR; return;
         case '/': lx->cur.type = T_SLASH; return;
+        case '%': lx->cur.type = T_MODOP; return;
         case '(': lx->cur.type = T_LPAREN; return;
         case ')': lx->cur.type = T_RPAREN; return;
         case ',': lx->cur.type = T_COMMA; return;
@@ -218,10 +220,61 @@ static double parse_factor(Lexer* lx) {
 
         /* List of supported functions: one argument unless POW (two) */
         if (!strcmp(fname, "RND")) {
-            static int seeded = 0;
-            lx_next(lx); if (lx->cur.type == T_LPAREN) { lx_next(lx); /* optional arg ignored */ (void)parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); }
-            if (!seeded) { srand(1); seeded = 1; } /* deterministic unless you later add RANDOMIZE */
-            return (double)rand() / (double)RAND_MAX;
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) {
+                lx_next(lx);
+                if (lx->cur.type != T_RPAREN) (void)parse_rel(lx);
+                if (lx->cur.type == T_RPAREN) lx_next(lx);
+            }
+            return pycompat_rnd();
+        }
+        if (!strcmp(fname, "RNDINT")) {
+            double lo, hi;
+            lx_next(lx);
+            if (lx->cur.type != T_LPAREN) return 0.0;
+            lx_next(lx);
+            lo = parse_rel(lx);
+            if (lx->cur.type != T_COMMA) return 0.0;
+            lx_next(lx); hi = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return pycompat_rndint(lo, hi);
+        }
+        if (!strcmp(fname, "ROUND")) {
+            double x, digits = 0.0;
+            lx_next(lx);
+            if (lx->cur.type != T_LPAREN) return 0.0;
+            lx_next(lx); x = parse_rel(lx);
+            if (lx->cur.type == T_COMMA) { lx_next(lx); digits = parse_rel(lx); }
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return pycompat_round(x, (int)digits);
+        }
+        if (!strcmp(fname, "MAX") || !strcmp(fname, "MIN")) {
+            int ismax = !strcmp(fname, "MAX"), n = 0;
+            double result = 0.0;
+            lx_next(lx);
+            if (lx->cur.type != T_LPAREN) return 0.0;
+            lx_next(lx);
+            while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
+                double v = parse_rel(lx);
+                if (!n || (ismax ? v > result : v < result)) result = v;
+                ++n;
+                if (lx->cur.type != T_COMMA) break;
+                lx_next(lx);
+            }
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return result;
+        }
+        if (!strcmp(fname, "IFF")) {
+            double condition, yes, no;
+            lx_next(lx);
+            if (lx->cur.type != T_LPAREN) return 0.0;
+            lx_next(lx); condition = parse_rel(lx);
+            if (lx->cur.type != T_COMMA) return 0.0;
+            lx_next(lx); yes = parse_rel(lx);
+            if (lx->cur.type != T_COMMA) return 0.0;
+            lx_next(lx); no = parse_rel(lx);
+            if (lx->cur.type == T_RPAREN) lx_next(lx);
+            return condition != 0.0 ? yes : no;
         }
 
         if (!strcmp(fname, "INT")) {
@@ -612,10 +665,11 @@ static double parse_power(Lexer* lx) {
 static double parse_term(Lexer* lx)
 {
     double v = parse_power(lx);           /* was parse_factor */
-    while (lx->cur.type == T_STAR || lx->cur.type == T_SLASH) {
+    while (lx->cur.type == T_STAR || lx->cur.type == T_SLASH || lx->cur.type == T_MODOP) {
         TokType op = lx->cur.type; lx_next(lx);
         double rhs = parse_power(lx);     /* was parse_factor */
         if (op == T_STAR) v *= rhs;
+        else if (op == T_MODOP) v = pycompat_mod(v, rhs);
         else if (rhs != 0.0) v /= rhs;
         else v = 0.0; /* match IDIV/MOD zero-divisor convention */
     }

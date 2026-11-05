@@ -151,7 +151,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 
 		if (isStr && lx.cur.type == T_IDENT &&
             (!strcmp(lx.cur.text,"LEFT$") || !strcmp(lx.cur.text,"RIGHT$") ||
-             !strcmp(lx.cur.text,"MID$") || !strcmp(lx.cur.text,"SEG$"))) {
+             !strcmp(lx.cur.text,"MID$") || !strcmp(lx.cur.text,"SEG$") || !strcmp(lx.cur.text,"IF$") || !strcmp(lx.cur.text,"INKEY$"))) {
             char result[4096]; SBuf sb;
             sbuf_init(&sb, result, sizeof(result));
             parse_string_expr_to_buf(&lx, &sb);
