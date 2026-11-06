@@ -8,6 +8,8 @@
 #include "strcon.h"
 #include "basic_fileio.h"
 #include "screen.h"
+#include "graphics.h"
+#include "music.h"
 #include "keyboard.h"
 int exec_assignment_tail(Lexer lx, int duringRun, int currentLine);
 extern int exec_multi(const char*, int, int, int*);
@@ -277,12 +279,10 @@ static int exec_assignment(Lexer* lx) {
 	}
 	if (lx->cur.type != T_EQ) { printf("ERROR: '=' expected\n"); return -1; }
 	lx_next(lx);
-
 	if (isStr) {
 		/* Minimal RHS: string literal or string var/array; otherwise numeric->string */
 		const char* ssrc = NULL;
 		char tmp[1024]; tmp[0] = 0;
-
 		if (lx->cur.type == T_STRING) { ssrc = lx->cur.text; lx_next(lx); }
 		else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
 			/* copy from existing string var/array element */
@@ -314,7 +314,6 @@ static int exec_assignment(Lexer* lx) {
 #endif
 			ssrc = tmp;
 		}
-
 		if (isArray) {
 			SArray* sa = sarray_find(name);
 			if (!sa) { printf("ERROR: UNDIM'D STRING ARRAY %s\n", name); return -1; }
@@ -329,7 +328,6 @@ static int exec_assignment(Lexer* lx) {
 	}
 	else {
 		double val = parse_rel(lx);
-
 		if (isArray) {
 			Array* a = array_find(name);
 			if (!a) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
@@ -424,7 +422,14 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
         if (lx.cur.type != T_END) { puts("ERROR: PAUSE syntax"); return -1; }
         return clinter_pause(seconds);
     }
+    if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text,"PLAY")==0) return music_statement(&lx);
 	if (lx.cur.type == T_IDENT && (_stricmp(lx.cur.text, "SCREEN") == 0 || _stricmp(lx.cur.text, "CLS") == 0 || _stricmp(lx.cur.text, "LOCATE") == 0 || _stricmp(lx.cur.text, "COLOR") == 0)) return screen_statement(&lx);
+	if (lx.cur.type == T_LINE) {
+        size_t gi=lx.i;
+        while (lx.s[gi]==' ' || lx.s[gi]=='\t') gi++;
+        if (lx.s[gi]=='(') { lx.cur.type=T_IDENT; strcpy(lx.cur.text,"LINE"); return graphics_statement(&lx); }
+    }
+	if (lx.cur.type == T_IDENT && (!_stricmp(lx.cur.text,"PSET") || !_stricmp(lx.cur.text,"PRESET") || !_stricmp(lx.cur.text,"LINE") || !_stricmp(lx.cur.text,"CIRCLE") || !_stricmp(lx.cur.text,"PAINT"))) return graphics_statement(&lx);
 	if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text, "RANDOMIZE") == 0) return pycompat_randomize_statement(&lx);
 	if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text, "MAT") == 0) return matrix_statement(&lx, data_next_number);
 	if (lx.cur.type == T_REM) return 0;
@@ -622,12 +627,11 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 
 	/* Console INPUT: INPUT N[,M] or INPUT "prompt"; N */
 	if (lx.cur.type == T_INPUT) {
-		int prompted = 0;
+		char input_prompt[256] = "? ";
 		lx_next(&lx);
 		if (lx.cur.type == T_STRING) {
-			fputs(lx.cur.text, stdout);
-			fflush(stdout);
-			prompted = 1;
+			strncpy(input_prompt, lx.cur.text, sizeof(input_prompt)-1);
+			input_prompt[sizeof(input_prompt)-1] = 0;
 			lx_next(&lx);
 			if (lx.cur.type != T_SEMI && lx.cur.type != T_COMMA) {
 				printf("ERROR: INPUT prompt needs ';' or ','\n"); return -1;
@@ -648,8 +652,14 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 			if (lx.cur.type != T_COMMA && lx.cur.type != T_END) {
 				printf("ERROR: unsupported INPUT target\n"); return -1;
 			}
-			if (!prompted) { fputs("? ", stdout); fflush(stdout); }
-			if (!fgets(value, sizeof(value), stdin)) { printf("ERROR: INPUT end of file\n"); return -1; }
+			{
+                int native = graphics_input(input_prompt, value, sizeof(value));
+                if (native < 0) { printf("ERROR: graphics window closed during INPUT\n"); return -1; }
+                if (native > 0) {
+                    fputs(input_prompt, stdout); fflush(stdout);
+                    if (!fgets(value, sizeof(value), stdin)) { printf("ERROR: INPUT end of file\n"); return -1; }
+                }
+            }
 			value[strcspn(value, "\r\n")] = 0;
 			if (string_var) {
 				Variable *v = ensure_var(name, 1);
@@ -662,7 +672,6 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 				if (end == value || *end) { printf("ERROR: INPUT expects number\n"); return -1; }
 				ensure_var(name, 0)->num = number;
 			}
-			prompted = 0;
 			if (lx.cur.type != T_COMMA) break;
 			lx_next(&lx);
 		}

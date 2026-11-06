@@ -4,6 +4,7 @@
 #include <math.h>
 #include "screen.h"
 #include "parse.h"
+#include "graphics.h"
 
 static int screen_active = 0;
 static int screen_x = 0, screen_y = 0;
@@ -34,7 +35,8 @@ int screen_statement(Lexer *lx) {
     lx_next(lx);
     if (_stricmp(command,"SCREEN") == 0) {
         if (!screen_integer(lx,&a) || !screen_end(lx)) return screen_error("mode syntax");
-        if (a != 0) return screen_error("unsupported mode (only SCREEN 0)");
+        if (graphics_mode(a) != 0) return screen_error("unsupported mode (SCREEN 0, 5, 7)");
+        if (a != 0) return 0;
         screen_active = 1;
         screen_x = screen_y = 0;
         screen_foreground = 7; screen_background = 0;
@@ -46,6 +48,7 @@ int screen_statement(Lexer *lx) {
     if (_stricmp(command,"CLS") == 0) {
         if (!screen_end(lx)) return screen_error("CLS syntax");
         screen_x = screen_y = 0;
+        if (graphics_active()) { graphics_clear(); return 0; }
         fputs("\033[2J\033[H", stdout);
         fflush(stdout);
         return 0;
@@ -58,6 +61,7 @@ int screen_statement(Lexer *lx) {
            Permit Y=24 as a compatibility status line: ColorScreen1.bas uses it. */
         if (a < 0 || a >= 80 || b < 0 || b > 24) return screen_error("LOCATE coordinates out of range");
         screen_x = a; screen_y = b;
+        if (graphics_active()) { graphics_locate(a,b); return 0; }
         printf("\033[%d;%dH", b+1, a+1);
         fflush(stdout);
         return 0;
@@ -65,9 +69,18 @@ int screen_statement(Lexer *lx) {
     if (_stricmp(command,"COLOR") == 0) {
         if (!screen_integer(lx,&a) || lx->cur.type != T_COMMA) return screen_error("COLOR syntax");
         lx_next(lx);
-        if (!screen_integer(lx,&b) || !screen_end(lx)) return screen_error("COLOR syntax");
+        if (!screen_integer(lx,&b)) return screen_error("COLOR syntax");
+        if (lx->cur.type == T_COMMA) {
+            int border;
+            lx_next(lx);
+            if (!screen_integer(lx,&border) || border<0 || border>15) return screen_error("COLOR border");
+            graphics_border(border);
+        }
+        if (!screen_end(lx)) return screen_error("COLOR syntax");
         if (a < 0 || a > 15 || b < 0 || b > 15) return screen_error("COLOR index out of range");
         screen_foreground = a; screen_background = b;
+        graphics_color(a,b);
+        if (graphics_active()) return 0;
         printf("\033[%d;%dm", screen_color_code(a,0), screen_color_code(b,1));
         fflush(stdout);
         return 0;

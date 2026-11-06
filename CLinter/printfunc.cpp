@@ -14,6 +14,7 @@
 #include "parse.h"
 #include "printfunc.h"
 #include "strcon.h"
+#include "graphics.h"
 
 #ifndef PRINT_ZONE
 #define PRINT_ZONE 14
@@ -356,7 +357,7 @@ int exec_print(Lexer* lx) {
                     int n = (int)parse_rel(lx);
                     if (n < 1) n = 1;
                     int target = n - 1; /* 0-based */
-                    while (g_print_col < target) { fputc(' ', out); g_print_col++; }
+                    while (g_print_col < target) { if (out == stdout && graphics_active()) graphics_text(" ",1); else fputc(' ', out); g_print_col++; }
                 }
                 if (lx->cur.type == T_RPAREN) lx_next(lx);
 
@@ -366,7 +367,7 @@ int exec_print(Lexer* lx) {
                 if (lx->cur.type == T_COMMA) {
                     suppress_nl = 1; lx_next(lx);
                     int nextZone = ((g_print_col / PRINT_ZONE) + 1) * PRINT_ZONE;
-                    while (g_print_col < nextZone) { fputc(' ', out); g_print_col++; }
+                    while (g_print_col < nextZone) { if (out == stdout && graphics_active()) graphics_text(" ",1); else fputc(' ', out); g_print_col++; }
                     if (lx_peek_stmt_sep(lx) || lx->cur.type == T_END || lx->cur.type == T_ELSE) break;
                     continue;
                 }
@@ -411,7 +412,8 @@ int exec_print(Lexer* lx) {
         /* Emit item and update column */
         for (size_t i = 0; i < L.len; ++i) {
             unsigned char c = L.data[i];
-            fputc((char)c, out);
+            if (out == stdout && graphics_active()) {graphics_text((const char *)&c,1); if(getenv("CLINTER_GRAPHICS_HEADLESS")) fputc((char)c,out);}
+            else fputc((char)c, out);
             if (c == '\n' || c == '\r') g_print_col = 0;
             else                    g_print_col++;
             suppress_nl = 0;
@@ -425,7 +427,7 @@ int exec_print(Lexer* lx) {
             suppress_nl = 1;
             lx_next(lx);
             int nextZone = ((g_print_col / PRINT_ZONE) + 1) * PRINT_ZONE;
-            while (g_print_col < nextZone) { fputc(' ', out); g_print_col++; }
+            while (g_print_col < nextZone) { if (out == stdout && graphics_active()) graphics_text(" ",1); else fputc(' ', out); g_print_col++; }
             if (lx_peek_stmt_sep(lx) || lx->cur.type == T_END || lx->cur.type == T_ELSE) break;
             continue;
         }
@@ -442,7 +444,8 @@ int exec_print(Lexer* lx) {
 
     /* End-of-statement behavior: print newline unless suppressed in THIS statement */
     if (!suppress_nl) {
-        fputc('\n', out);
+        if (out == stdout && graphics_active()) {graphics_text("\n",1); if(getenv("CLINTER_GRAPHICS_HEADLESS"))fputc('\n',out);}
+        else fputc('\n', out);
         g_print_col = 0;
     }
     if (file_handle >= 0) {

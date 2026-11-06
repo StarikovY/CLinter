@@ -29,6 +29,8 @@ set(CLINTER_SOURCES
   "${CLINTER_SRC_DIR}/matrix.cpp"
   "${CLINTER_SRC_DIR}/pycompat.cpp"
   "${CLINTER_SRC_DIR}/screen.cpp"
+  "${CLINTER_SRC_DIR}/graphics.cpp"
+  "${CLINTER_SRC_DIR}/music.cpp"
   "${CLINTER_SRC_DIR}/keyboard.cpp"
   "${CLINTER_SRC_DIR}/main.cpp"
   "${CLINTER_SRC_DIR}/Parse.cpp"
@@ -41,6 +43,8 @@ set_source_files_properties(
   "${CLINTER_SRC_DIR}/matrix.cpp"
   "${CLINTER_SRC_DIR}/pycompat.cpp"
   "${CLINTER_SRC_DIR}/screen.cpp"
+  "${CLINTER_SRC_DIR}/graphics.cpp"
+  "${CLINTER_SRC_DIR}/music.cpp"
   "${CLINTER_SRC_DIR}/keyboard.cpp"
   "${CLINTER_SRC_DIR}/wxecut.cpp"
   "${CLINTER_SRC_DIR}/basic_fileio.cpp"
@@ -48,6 +52,25 @@ set_source_files_properties(
   PROPERTIES LANGUAGE C
 )
 add_executable(CLinter ${CLINTER_SOURCES})
+# SDL2 supplies a native graphics window. Headless framebuffer mode is always
+# available for deterministic CTest runs and build environments without SDL2.
+find_package(SDL2 QUIET CONFIG)
+if(NOT TARGET SDL2::SDL2)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(SDL2_PC QUIET IMPORTED_TARGET sdl2)
+  endif()
+endif()
+if(TARGET SDL2::SDL2)
+  target_link_libraries(CLinter PRIVATE SDL2::SDL2)
+  target_compile_definitions(CLinter PRIVATE CLINTER_HAVE_SDL2=1)
+elseif(TARGET PkgConfig::SDL2_PC)
+  target_link_libraries(CLinter PRIVATE PkgConfig::SDL2_PC)
+  target_compile_definitions(CLinter PRIVATE CLINTER_HAVE_SDL2=1)
+else()
+  message(WARNING "SDL2 not found: graphics work in headless framebuffer mode; install SDL2 for native window")
+endif()
+
 target_include_directories(CLinter PRIVATE "${CLINTER_SRC_DIR}")
 set_target_properties(CLinter PROPERTIES
   C_STANDARD 17 C_STANDARD_REQUIRED YES
@@ -116,4 +139,28 @@ if(BUILD_TESTING)
   add_test(NAME clinter_pycompat_inkey
     COMMAND "$<TARGET_FILE:CLinter>" "${CLINTER_REPO_ROOT}/Tests/regression/auto/InkeyTest.bas")
   set_tests_properties(clinter_pycompat_inkey PROPERTIES PASS_REGULAR_EXPRESSION "INKEY PASS" TIMEOUT 20 LABELS "CLinter;regression;PYLinter;INKEY")
+endif()
+
+# Day 5 graphics: deterministic pixel tests, no display server required.
+if(BUILD_TESTING)
+  add_test(NAME clinter_graphics_primitives
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case primitives)
+  add_test(NAME clinter_graphics_invalid
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case invalid)
+  set_tests_properties(clinter_graphics_primitives clinter_graphics_invalid PROPERTIES
+    TIMEOUT 20 LABELS "CLinter;regression;GRAPHICS")
+endif()
+
+# Day 5 continuation: MSX2 graphics text and PLAY/MML, headless deterministic check.
+if(BUILD_TESTING)
+  add_test(NAME clinter_msx2_text_play
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/msx2_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case valid)
+  add_test(NAME clinter_msx2_play_invalid
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/msx2_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case invalid)
+  set_tests_properties(clinter_msx2_text_play clinter_msx2_play_invalid PROPERTIES
+    TIMEOUT 20 LABELS "CLinter;regression;GRAPHICS;PLAY")
 endif()

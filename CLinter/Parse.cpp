@@ -21,6 +21,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include "pycompat.h"
+#include "graphics.h"
 
 #include "runtime.h"
 #include "parse.h"
@@ -127,6 +128,12 @@ void lx_next(Lexer* lx) {
             if (!strcmp(u, "RENUM")) { lx->cur.type = T_RENUM; return; }
             if (!strcmp(u, "BYE")) { lx->cur.type = T_BYE; return; }
 
+            /* MSX infix MOD, retaining existing MOD(x,y) function. */
+            if (!strcmp(u,"MOD")) {
+                size_t j=lx->i;
+                while (lx->s[j]==' ' || lx->s[j]=='\t') j++;
+                if (lx->s[j]!='(') {lx->cur.type=T_MODOP;return;}
+            }
             /* logical ops */
             if (!strcmp(u, "AND")) { lx->cur.type = T_AND; return; }
             if (!strcmp(u, "OR")) { lx->cur.type = T_OR;  return; }
@@ -216,6 +223,16 @@ static double parse_factor(Lexer* lx) {
         /* handle functions / constants first */
         char fname[32]; upcopy(fname, t.text, sizeof(fname));
 
+        if (!strcmp(fname,"POINT")) {
+            int x,y;
+            lx_next(lx);
+            if (lx->cur.type!=T_LPAREN) return -1.0;
+            lx_next(lx);x=(int)parse_rel(lx);
+            if (lx->cur.type!=T_COMMA)return -1.0;
+            lx_next(lx);y=(int)parse_rel(lx);
+            if (lx->cur.type==T_RPAREN)lx_next(lx);
+            return (double)graphics_point(x,y);
+        }
         /* --- numeric-returning classic math --- */
 
         /* List of supported functions: one argument unless POW (two) */
