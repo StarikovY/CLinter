@@ -43,6 +43,7 @@ void lx_init(Lexer*lx,const char*s)
 void lx_next(Lexer* lx) {
     lx_skip_space(lx);
     if (!lx->s[lx->i]) { lx->cur.type = T_END; lx->cur.text[0] = 0; return; }
+    if (lx->s[lx->i] == '\'') { lx->cur.type = T_REM; lx->cur.text[0] = 0; return; }
 
     /* NEW: treat ':' and '\' as end-of-statement markers for this segment.
        Do NOT consume them here; exec_multi in main.cpp will split on them. */

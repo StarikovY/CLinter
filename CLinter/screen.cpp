@@ -34,9 +34,24 @@ int screen_statement(Lexer *lx) {
     command[sizeof(command)-1] = '\0';
     lx_next(lx);
     if (_stricmp(command,"SCREEN") == 0) {
-        if (!screen_integer(lx,&a) || !screen_end(lx)) return screen_error("mode syntax");
-        if (graphics_mode(a) != 0) return screen_error("unsupported mode (SCREEN 0, 5, 7)");
-        if (a != 0) return 0;
+        int active=0,display=0,has_pages=0,field;
+        if (!screen_integer(lx,&a)) return screen_error("mode syntax");
+        /* MSX: SCREEN mode[,sprite-size[,key-click[,active-page[,display-page]]]] */
+        if(lx->cur.type==T_COMMA) {
+            int slot;
+            for(slot=1;slot<=4 && lx->cur.type==T_COMMA;slot++) {
+                lx_next(lx);
+                if(lx->cur.type==T_COMMA || lx->cur.type==T_END)continue;
+                if(!screen_integer(lx,&field))return screen_error("SCREEN parameter");
+                if(slot==3){active=field;has_pages=1;}
+                if(slot==4){display=field;has_pages=1;}
+            }
+        }
+        if(!screen_end(lx))return screen_error("SCREEN syntax");
+        if(a!=0 && a!=2 && a!=3 && a!=4 && a!=5 && a!=6 && a!=7 && a!=8)return screen_error("unsupported mode (SCREEN 0, 2, 3, 4, 5, 6, 7, 8)");
+        if(a==0 && has_pages)return screen_error("SCREEN 0 pages");
+        if(graphics_current_mode()!=a && graphics_mode(a)!=0)return screen_error("mode");
+        if(a!=0){if(graphics_pages(active,display)!=0)return screen_error("page out of range");return 0;}
         screen_active = 1;
         screen_x = screen_y = 0;
         screen_foreground = 7; screen_background = 0;
@@ -66,6 +81,23 @@ int screen_statement(Lexer *lx) {
         fflush(stdout);
         return 0;
     }
+    /* MSX2 programmable palette: COLOR=(index,red,green,blue), RGB 0..7. */
+    if (_stricmp(command,"COLOR") == 0 && lx->cur.type==T_EQ) {
+        int red,green,blue;
+        lx_next(lx);
+        if(lx->cur.type!=T_LPAREN)return screen_error("palette syntax");
+        lx_next(lx);
+        if(!screen_integer(lx,&a) || lx->cur.type!=T_COMMA)return screen_error("palette index");
+        lx_next(lx);
+        if(!screen_integer(lx,&red) || lx->cur.type!=T_COMMA)return screen_error("palette red");
+        lx_next(lx);
+        if(!screen_integer(lx,&green) || lx->cur.type!=T_COMMA)return screen_error("palette green");
+        lx_next(lx);
+        if(!screen_integer(lx,&blue) || lx->cur.type!=T_RPAREN)return screen_error("palette blue");
+        lx_next(lx);
+        if(!screen_end(lx) || graphics_set_palette(a,red,green,blue))return screen_error("palette range/syntax");
+        return 0;
+    }
     if (_stricmp(command,"COLOR") == 0) {
         if (!screen_integer(lx,&a) || lx->cur.type != T_COMMA) return screen_error("COLOR syntax");
         lx_next(lx);
@@ -77,7 +109,7 @@ int screen_statement(Lexer *lx) {
             graphics_border(border);
         }
         if (!screen_end(lx)) return screen_error("COLOR syntax");
-        if (a < 0 || a > 15 || b < 0 || b > 15) return screen_error("COLOR index out of range");
+        if (a < 0 || a > (graphics_current_mode()==8?255:(graphics_current_mode()==6?3:15)) || b < 0 || b > (graphics_current_mode()==8?255:(graphics_current_mode()==6?3:15))) return screen_error("COLOR index out of range");
         screen_foreground = a; screen_background = b;
         graphics_color(a,b);
         if (graphics_active()) return 0;

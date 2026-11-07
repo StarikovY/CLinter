@@ -427,9 +427,9 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 	if (lx.cur.type == T_LINE) {
         size_t gi=lx.i;
         while (lx.s[gi]==' ' || lx.s[gi]=='\t') gi++;
-        if (lx.s[gi]=='(') { lx.cur.type=T_IDENT; strcpy(lx.cur.text,"LINE"); return graphics_statement(&lx); }
+        if (lx.s[gi]=='(' || lx.s[gi]=='-') { lx.cur.type=T_IDENT; strcpy(lx.cur.text,"LINE"); return graphics_statement(&lx); }
     }
-	if (lx.cur.type == T_IDENT && (!_stricmp(lx.cur.text,"PSET") || !_stricmp(lx.cur.text,"PRESET") || !_stricmp(lx.cur.text,"LINE") || !_stricmp(lx.cur.text,"CIRCLE") || !_stricmp(lx.cur.text,"PAINT"))) return graphics_statement(&lx);
+	if (lx.cur.type == T_IDENT && (!_stricmp(lx.cur.text,"PSET") || !_stricmp(lx.cur.text,"PRESET") || !_stricmp(lx.cur.text,"LINE") || !_stricmp(lx.cur.text,"CIRCLE") || !_stricmp(lx.cur.text,"PAINT") || !_stricmp(lx.cur.text,"DRAW") || !_stricmp(lx.cur.text,"COPY"))) return graphics_statement(&lx);
 	if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text, "RANDOMIZE") == 0) return pycompat_randomize_statement(&lx);
 	if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text, "MAT") == 0) return matrix_statement(&lx, data_next_number);
 	if (lx.cur.type == T_REM) return 0;
@@ -768,11 +768,11 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		   Colons and backslashes are statement separators inside branches. */
 		lx_next(&lx);
 		double cond = parse_rel(&lx);
-		if (lx.cur.type != T_THEN) {
-			printf("ERROR: THEN expected\n");
+		if (lx.cur.type != T_THEN && lx.cur.type != T_GOTO) {
+			printf("ERROR: THEN or GOTO expected\n");
 			return -1;
 		}
-		/* Lexer offset is immediately after THEN keyword. */
+		/* Lexer offset is immediately after THEN or MSX shorthand GOTO. */
 		const char *thenStart = src + lx.i;
 		const char *elsePos = NULL;
 		int quoted = 0;
@@ -948,12 +948,10 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		for (;;) {
 			lx_next(&lx);
 			if (lx.cur.type != T_IDENT) { printf("ERROR: READ needs variable\n"); return -1; }
-
 			/* capture name and whether string */
 			char name[32]; int isStr = is_string_var_name(lx.cur.text);
 			strncpy(name, lx.cur.text, sizeof(name) - 1); name[sizeof(name) - 1] = 0;
 			lx_next(&lx);
-
 			/* Array element? */
 			if (lx.cur.type == T_LPAREN) {
 				int subs[MAX_DIMS], nsubs = 0;
@@ -966,7 +964,6 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 				}
 				if (lx.cur.type != T_RPAREN) { printf("ERROR: missing ')'\n"); return -1; }
 				lx_next(&lx);
-
 				if (isStr) {
 					SArray* sa = sarray_find(name);
 					if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
@@ -990,16 +987,13 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 					ensure_var(name, 0)->num = data_next_number();
 				}
 			}
-
 			/* More variables? READ A,B$,C(1) */
 			if (lx.cur.type == T_COMMA) continue;
 			break;
 		}
 		return 0;
 	}
-
 	return exec_assignment_tail(lx, duringRun, currentLine);
 }
-
 /* Reset the READ pool at the beginning of each RUN. */
 void exec_data_reset_for_run(void) { data_clear(); }

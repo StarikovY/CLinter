@@ -7,6 +7,7 @@
 #include "parse.h"
 #include "wxecut.h"
 #include "basic_repl.h"
+#include "graphics.h"
 
 #include <locale.h>
 #if defined(_WIN32)
@@ -85,7 +86,7 @@ Array* array_dim(const char* name, int ndims, int* dims) {
 		}
 		else if (a->data) { free(a->data); a->data = NULL; }
 		a->ndims = ndims; for (i = 0; i < ndims; i++) a->dims[i] = dims[i];
-		a->data = (double*)calloc(total, sizeof(double));
+		a->data = (double*)calloc(total + (ndims == 1 ? 1 : 0), sizeof(double));
 		if (!a->data) { printf("ERROR: OUT OF MEMORY\n"); return NULL; }
 		return a;
 	}
@@ -96,7 +97,7 @@ int array_index(Array* a, int* subs, int nsubs) {
 	if (!a || nsubs != a->ndims) return -1;
 	for (i = a->ndims - 1; i >= 0; i--) {
 		int s = subs[i];
-		if (s < 0 || s >= a->dims[i]) return -1;  /* zero-based indices */
+		if (s < 0 || s >= a->dims[i] + (a->ndims == 1 ? 1 : 0)) return -1;  /* 1D MSX DIM upper bound */
 		idx += (size_t)s * stride;
 		stride *= (size_t)a->dims[i];
 	}
@@ -341,6 +342,13 @@ static void run_program(void) {
 	g_gosub_top = 0;
 
 	while (pcIndex < g_prog_count) {
+        graphics_poll_events();
+        if(g_ctrlc_pressed) {
+            g_ctrlc_pressed=0;
+            printf("\nBREAK at line %d\n",g_prog[pcIndex].number);
+            graphics_shutdown();
+            return;
+        }
 		int curLine = g_prog[pcIndex].number;
 		const char* src = g_prog[pcIndex].text;
 		int code, jump = 0;
@@ -367,11 +375,12 @@ static void run_program(void) {
 		if (g_ctrlc_pressed) {
 			g_ctrlc_pressed = 0;            /* reset the flag for next run */
 			printf("\nBREAK at line %d\n", curLine);
+            graphics_shutdown();
 			return;                         /* stop RUN, back to READY */
 		}
 
-		if (code == 9)       return;
-		else if (code < 0)   return;
+		if (code == 9)       { graphics_shutdown(); return; }
+		else if (code < 0)   { graphics_shutdown(); return; }
 		else if (code == 1) {
 			int idx = find_prog_index_by_line(jump);
 			if (idx < 0) { printf("ERROR: Undefined line %d\n", jump); return; }
@@ -406,7 +415,7 @@ int prog_load(const char* filename) {
 	char buf[MAX_LINE_LEN];
 	while (fgets(buf, sizeof(buf), fp)) {
 		trim(buf);
-		if (buf[0] == 0) continue;
+		if (buf[0] == 0 || (unsigned char)buf[0] == 26) continue;
 
 		int ln = 0;
 		char* p = buf;
@@ -478,6 +487,7 @@ int main(int argc, char* argv[])
 	/* ---- auto-run if a file was provided ---- */
 	if (autorun) {
 		run_program();
+        graphics_shutdown();
 		/* after run, exit */
 		return 0;
 	}

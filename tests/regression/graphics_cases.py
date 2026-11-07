@@ -14,7 +14,7 @@ a = p.parse_args()
 env = dict(os.environ, CLINTER_GRAPHICS_HEADLESS='1')
 if a.case == 'primitives':
     source = Path(__file__).parent / 'auto' / 'GraphicsDay5.bas'
-    r = subprocess.run([a.exe, str(source)], capture_output=True, text=True, timeout=15, env=env)
+    r = subprocess.run([a.exe, str(source)], input="\n", capture_output=True, text=True, timeout=15, env=env)
     if r.returncode or 'GRAPHICS DAY5 PASS' not in r.stdout or 'FAIL ' in r.stdout or 'ERROR:' in r.stdout:
         sys.exit('FAIL graphics primitives: ' + repr(r.stdout + r.stderr))
     print('PASS: MSX2 graphics primitives')

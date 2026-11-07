@@ -164,3 +164,55 @@ if(BUILD_TESTING)
   set_tests_properties(clinter_msx2_text_play clinter_msx2_play_invalid PROPERTIES
     TIMEOUT 20 LABELS "CLinter;regression;GRAPHICS;PLAY")
 endif()
+
+# MSX2 Graphics Phase G1: extended drawing and invalid syntax regression.
+if(Python3_EXECUTABLE)
+  add_test(NAME clinter_graphics_g1_valid
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_g1_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case valid)
+  add_test(NAME clinter_graphics_g1_invalid
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_g1_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case invalid)
+  set_tests_properties(clinter_graphics_g1_valid clinter_graphics_g1_invalid
+    PROPERTIES LABELS "CLinter;GRAPHICS;regression")
+endif()
+
+# MSX2 Phase G2: page selection and COPY, deterministic headless tests.
+if(Python3_Interpreter_FOUND)
+  add_test(NAME clinter_graphics_g2_valid
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_g2_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case valid)
+  add_test(NAME clinter_graphics_g2_invalid
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_g2_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --case invalid)
+  set_tests_properties(clinter_graphics_g2_valid clinter_graphics_g2_invalid PROPERTIES LABELS "CLinter;regression;GRAPHICS" TIMEOUT 20)
+endif()
+
+# MSX SCREEN 2 compatibility: original fixture remains unchanged, infinite loop
+# replaced only in a temporary automated-test copy.
+if(BUILD_TESTING)
+  add_test(NAME clinter_msx_blocks1
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/blocks1_cases.py"
+      --exe "$<TARGET_FILE:CLinter>" --file "${CLINTER_REPO_ROOT}/Tests/regression/auto/blocks1.bas")
+  set_tests_properties(clinter_msx_blocks1 PROPERTIES TIMEOUT 20 LABELS "CLinter;regression;GRAPHICS;SCREEN")
+endif()
+
+# MSX2 graphics G3: SCREEN 6/8, color ranges, and interruptible infinite loops.
+if(BUILD_TESTING)
+  foreach(g3_case IN ITEMS valid invalid interrupt)
+    add_test(NAME "clinter_msx2_g3_${g3_case}"
+      COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_g3_cases.py"
+        --exe "$<TARGET_FILE:CLinter>" --case "${g3_case}")
+    set_tests_properties("clinter_msx2_g3_${g3_case}" PROPERTIES TIMEOUT 20 LABELS "CLinter;regression;GRAPHICS;G3")
+  endforeach()
+endif()
+
+# MSX2 graphics G4: palette programming, SCREEN 3/4, and DRAW movement.
+if(BUILD_TESTING)
+  foreach(g4_case IN ITEMS valid invalid)
+    add_test(NAME "clinter_msx2_g4_${g4_case}"
+      COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_g4_cases.py"
+        --exe "$<TARGET_FILE:CLinter>" --case "${g4_case}")
+    set_tests_properties("clinter_msx2_g4_${g4_case}" PROPERTIES TIMEOUT 20 LABELS "CLinter;regression;GRAPHICS;G4")
+  endforeach()
+endif()
