@@ -1,3 +1,4 @@
+#include "basic_b1b2.h"
 /* Parse.cpp � full classic-C implementation of lexer + expression parser
    Features:
    - Tokens/keywords for the interpreter (LET, PRINT, INPUT, IF/THEN, GOTO, END, STOP, REM, RUN, NEW, LIST,
@@ -78,7 +79,7 @@ void lx_next(Lexer* lx) {
     /* identifier / keyword (letters, _, may include $ at end) */
     if (isalpha((unsigned char)lx->s[lx->i]) || lx->s[lx->i] == '_') {
         size_t start = lx->i++;
-        while (isalnum((unsigned char)lx->s[lx->i]) || lx->s[lx->i] == '_' || lx->s[lx->i] == '$') lx->i++;
+        while (isalnum((unsigned char)lx->s[lx->i]) || lx->s[lx->i] == '_' || lx->s[lx->i] == '$' || lx->s[lx->i] == '%' || lx->s[lx->i] == '!' || lx->s[lx->i] == '#') lx->i++;
         {
             char t[128], u[128]; size_t len = lx->i - start; if (len > 127) len = 127; memcpy(t, lx->s + start, len); t[len] = 0;
             { size_t k; for (k = 0; k < len; k++) { u[k] = (char)toupper((unsigned char)t[k]); } u[len] = 0; }
@@ -224,6 +225,7 @@ static double parse_factor(Lexer* lx) {
         /* handle functions / constants first */
         char fname[32]; upcopy(fname, t.text, sizeof(fname));
 
+        { double userfn=0; if(b1b2_function(fname,lx,&userfn))return userfn; }
         if (!strcmp(fname,"POINT")) {
             int x,y;
             lx_next(lx);

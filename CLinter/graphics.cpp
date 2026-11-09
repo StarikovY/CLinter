@@ -6,6 +6,7 @@
 #include <math.h>
 #include <ctype.h>
 #include "graphics.h"
+#include "sprite.h"
 #include "parse.h"
 #ifdef CLINTER_HAVE_SDL2
 #include <SDL.h>
@@ -109,7 +110,7 @@ static const unsigned char input_font[95][12] = {
 };
 #define GW 512
 #define GH 212
-/* SCREEN 5: four 256x212 pages; SCREEN 7: two 512x212 pages. */
+/* CLinter page model: SCREEN 5/6 four pages, SCREEN 7 two pages, SCREEN 8 one page. */
 #define MAX_PAGES 4
 static unsigned char pages[MAX_PAGES][GW*GH];
 static int active_page=0, display_page=0, page_count=0;
@@ -177,29 +178,49 @@ static void draw_input_text(const char *message) {
             if(input_font[ch-32][j] & (0x80>>b)) SDL_RenderDrawPoint(renderer,x+b,y+j);
     }
 }
+static int queued_game_key = 0;
+static void game_event(const SDL_Event *e) {
+    if(e->type==SDL_QUIT || (e->type==SDL_WINDOWEVENT && e->window.event==SDL_WINDOWEVENT_CLOSE)) {g_ctrlc_pressed=1;return;}
+    if(e->type==SDL_KEYDOWN) {
+        SDL_Keycode key=e->key.keysym.sym;
+        if(key==SDLK_c && (e->key.keysym.mod & KMOD_CTRL)) {g_ctrlc_pressed=1;return;}
+        if(key>=SDLK_a && key<=SDLK_z) queued_game_key=(int)(key-SDLK_a+'A');
+        else if(key>=SDLK_0 && key<=SDLK_9) queued_game_key=(int)key;
+        else if(key==SDLK_SPACE) queued_game_key=' ';
+        else if(key==SDLK_RETURN || key==SDLK_KP_ENTER) queued_game_key=13;
+        else if(key==SDLK_ESCAPE) queued_game_key=27;
+    }
+}
+int graphics_read_key(void) {
+    int key;
+    if(!window || input_waiting || getenv("CLINTER_GRAPHICS_HEADLESS"))return 0;
+    graphics_poll_events();
+    key=queued_game_key;queued_game_key=0;return key;
+}
 static void present(void) {
     unsigned int argb[GW*GH]; int x,y;
     SDL_Event event;
     if (!renderer || !texture) return;
-    if (!input_waiting) while (SDL_PollEvent(&event)) { if (event.type==SDL_QUIT || (event.type==SDL_WINDOWEVENT && event.window.event==SDL_WINDOWEVENT_CLOSE)) { g_ctrlc_pressed=1; SDL_HideWindow(window); } else if(event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_c && (event.key.keysym.mod & KMOD_CTRL)) g_ctrlc_pressed=1; }
+    if (!input_waiting) while (SDL_PollEvent(&event)) game_event(&event);
     for(y=0;y<GH;y++) for(x=0;x<width;x++) argb[y*width+x]=palette[pages[display_page][y*GW+x]];
+    sprite_overlay(argb,width,GH,palette);
     SDL_UpdateTexture(texture,NULL,argb,width*(int)sizeof(unsigned int));
     SDL_RenderClear(renderer); SDL_RenderCopy(renderer,texture,NULL,NULL);
     if (input_waiting) draw_input_text(input_overlay);
     SDL_RenderPresent(renderer);
 }
 #else
+int graphics_read_key(void) { return 0; }
 static void present(void) {}
 #endif
+void graphics_refresh(void) { present(); }
 int graphics_active(void) { return mode != 0; }
 int graphics_current_mode(void) { return mode; }
 void graphics_poll_events(void) {
 #ifdef CLINTER_HAVE_SDL2
     SDL_Event event;
     if(window && !input_waiting)while(SDL_PollEvent(&event)) {
-        if(event.type==SDL_QUIT || (event.type==SDL_WINDOWEVENT && event.window.event==SDL_WINDOWEVENT_CLOSE) ||
-           (event.type==SDL_KEYDOWN && event.key.keysym.sym==SDLK_c && (event.key.keysym.mod & KMOD_CTRL)))
-            g_ctrlc_pressed=1;
+        game_event(&event);
     }
 #endif
 }
@@ -249,8 +270,10 @@ static int draw_x=0,draw_y=0;
 int graphics_mode(int newmode) {
     if(newmode!=0 && newmode!=2 && newmode!=3 && newmode!=4 && newmode!=5 && newmode!=6 && newmode!=7 && newmode!=8) return -1;
     if(newmode==0) { graphics_shutdown(); return 0; }
+    sprite_reset();
     mode=newmode; memset(rgb_palette,0,sizeof(rgb_palette)); width=(mode==5 || mode==2 || mode==3 || mode==4 || mode==8)?256:512; ink=(mode==6)?3:15; paper=0;
-    memset(pages,0,sizeof(pages));page_count=(mode==2 || mode==3 || mode==4)?1:((mode==5 || mode==6)?4:((mode==7)?2:1));active_page=display_page=0;draw_x=draw_y=0;
+    memset(pages,0,sizeof(pages));/* Keep SCREEN 8 single-page until its page layout is implemented; G3 relies on this. */
+    page_count=(mode==2 || mode==3 || mode==4)?1:((mode==5 || mode==6)?4:((mode==7)?2:1));active_page=display_page=0;draw_x=draw_y=0;
 #ifdef CLINTER_HAVE_SDL2
     reset_palette();
     if(!getenv("CLINTER_GRAPHICS_HEADLESS")) {

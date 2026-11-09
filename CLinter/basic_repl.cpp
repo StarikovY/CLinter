@@ -59,7 +59,7 @@ int basic_readline(const char *prompt,char *out,size_t capacity) {
     struct termios oldmode,raw;
     if(tcgetattr(STDIN_FILENO,&oldmode)!=0) return 0;
     raw=oldmode; raw.c_lflag &= ~(ICANON|ECHO|ISIG); raw.c_iflag &= ~(IXON|ICRNL); raw.c_cc[VMIN]=1; raw.c_cc[VTIME]=0;
-    if(tcsetattr(STDIN_FILENO,TCSAFLUSH,&raw)!=0) return 0;
+    if(tcsetattr(STDIN_FILENO,TCSANOW,&raw)!=0) return 0;
 #endif
     size_t len=0,pos=0; int nav=count; char draft[4096]; draft[0]=0; out[0]=0;
     printf("%s",prompt); fflush(stdout);
@@ -113,7 +113,7 @@ int basic_readline(const char *prompt,char *out,size_t capacity) {
 #if defined(_WIN32)
     SetConsoleMode(h,oldmode);
 #else
-    tcsetattr(STDIN_FILENO,TCSAFLUSH,&oldmode);
+    tcsetattr(STDIN_FILENO,TCSANOW,&oldmode);
 #endif
     return result;
 }

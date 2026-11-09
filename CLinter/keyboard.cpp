@@ -1,5 +1,6 @@
 /* Nonblocking console keyboard input; classic C, macOS/Linux/Windows. */
 #include "keyboard.h"
+#include "graphics.h"
 #include <stdio.h>
 #include <math.h>
 #if defined(_WIN32)
@@ -14,6 +15,10 @@
 #include <time.h>
 #endif
 int clinter_inkey(void) {
+    int game_key=graphics_read_key();
+    if(game_key)return game_key;
+    /* Active SDL window owns the keyboard: never steal console keystrokes. */
+    if(graphics_active())return 0;
 #if defined(_WIN32)
     if (!_isatty(_fileno(stdin))) return 0;
     if (!_kbhit()) return 0;

@@ -1,3 +1,4 @@
+#include "basic_b3.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -396,7 +397,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 			}
 			else { printf("ERROR: string assignment needs a string\n"); return -1; }
 		}
-		else { double vnum = parse_rel(&lx); ensure_var(name, 0)->num = vnum; }
+		else { double vnum = parse_rel(&lx); ensure_var(name, 0)->num = b3_default_type(name)==1 ? (double)(long)vnum : vnum; }
 		return 0;
 	}
 

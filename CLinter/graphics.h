@@ -18,6 +18,9 @@ int graphics_statement(Lexer *lx);
 int graphics_point(int x, int y);
 void graphics_shutdown(void);
 void graphics_poll_events(void);
+/* Returns a queued SDL key when graphics window has focus, or zero. */
+int graphics_read_key(void);
+void graphics_refresh(void);
 int graphics_set_palette(int index,int red,int green,int blue);
 int graphics_get_palette(int index,int *red,int *green,int *blue);
 /* 0=SDL input completed, 1=console fallback, -1=window closed. */

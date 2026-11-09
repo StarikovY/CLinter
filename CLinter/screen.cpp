@@ -5,6 +5,7 @@
 #include "screen.h"
 #include "parse.h"
 #include "graphics.h"
+#include "sprite.h"
 
 static int screen_active = 0;
 static int screen_x = 0, screen_y = 0;
@@ -34,7 +35,7 @@ int screen_statement(Lexer *lx) {
     command[sizeof(command)-1] = '\0';
     lx_next(lx);
     if (_stricmp(command,"SCREEN") == 0) {
-        int active=0,display=0,has_pages=0,field;
+        int active=0,display=0,has_pages=0,field,spritesize=0;
         if (!screen_integer(lx,&a)) return screen_error("mode syntax");
         /* MSX: SCREEN mode[,sprite-size[,key-click[,active-page[,display-page]]]] */
         if(lx->cur.type==T_COMMA) {
@@ -43,6 +44,7 @@ int screen_statement(Lexer *lx) {
                 lx_next(lx);
                 if(lx->cur.type==T_COMMA || lx->cur.type==T_END)continue;
                 if(!screen_integer(lx,&field))return screen_error("SCREEN parameter");
+                if(slot==1)spritesize=field;
                 if(slot==3){active=field;has_pages=1;}
                 if(slot==4){display=field;has_pages=1;}
             }
@@ -51,7 +53,7 @@ int screen_statement(Lexer *lx) {
         if(a!=0 && a!=2 && a!=3 && a!=4 && a!=5 && a!=6 && a!=7 && a!=8)return screen_error("unsupported mode (SCREEN 0, 2, 3, 4, 5, 6, 7, 8)");
         if(a==0 && has_pages)return screen_error("SCREEN 0 pages");
         if(graphics_current_mode()!=a && graphics_mode(a)!=0)return screen_error("mode");
-        if(a!=0){if(graphics_pages(active,display)!=0)return screen_error("page out of range");return 0;}
+        if(a!=0){if(sprite_size(spritesize)!=0)return screen_error("sprite size");if(graphics_pages(active,display)!=0)return screen_error("page out of range");return 0;}
         screen_active = 1;
         screen_x = screen_y = 0;
         screen_foreground = 7; screen_background = 0;

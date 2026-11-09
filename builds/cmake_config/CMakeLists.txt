@@ -24,13 +24,19 @@ set(CLINTER_SOURCES
   "${CLINTER_SRC_DIR}/basic_repl.cpp"
   "${CLINTER_SRC_DIR}/basic_fileio.cpp"
   "${CLINTER_SRC_DIR}/basic_assignment.cpp"
+  "${CLINTER_SRC_DIR}/basic_b1b2.cpp"
+  "${CLINTER_SRC_DIR}/basic_b3.cpp"
   "${CLINTER_SRC_DIR}/data_table.cpp"
   "${CLINTER_SRC_DIR}/help.cpp"
   "${CLINTER_SRC_DIR}/matrix.cpp"
   "${CLINTER_SRC_DIR}/pycompat.cpp"
   "${CLINTER_SRC_DIR}/screen.cpp"
   "${CLINTER_SRC_DIR}/graphics.cpp"
+  "${CLINTER_SRC_DIR}/sprite.cpp"
+  "${CLINTER_SRC_DIR}/filename.cpp"
   "${CLINTER_SRC_DIR}/music.cpp"
+  "${CLINTER_SRC_DIR}/music_psg.cpp"
+  "${CLINTER_SRC_DIR}/msx_events.cpp"
   "${CLINTER_SRC_DIR}/keyboard.cpp"
   "${CLINTER_SRC_DIR}/main.cpp"
   "${CLINTER_SRC_DIR}/Parse.cpp"
@@ -44,11 +50,17 @@ set_source_files_properties(
   "${CLINTER_SRC_DIR}/pycompat.cpp"
   "${CLINTER_SRC_DIR}/screen.cpp"
   "${CLINTER_SRC_DIR}/graphics.cpp"
+  "${CLINTER_SRC_DIR}/sprite.cpp"
+  "${CLINTER_SRC_DIR}/filename.cpp"
   "${CLINTER_SRC_DIR}/music.cpp"
+  "${CLINTER_SRC_DIR}/music_psg.cpp"
+  "${CLINTER_SRC_DIR}/msx_events.cpp"
   "${CLINTER_SRC_DIR}/keyboard.cpp"
   "${CLINTER_SRC_DIR}/wxecut.cpp"
   "${CLINTER_SRC_DIR}/basic_fileio.cpp"
   "${CLINTER_SRC_DIR}/basic_assignment.cpp"
+  "${CLINTER_SRC_DIR}/basic_b1b2.cpp"
+  "${CLINTER_SRC_DIR}/basic_b3.cpp"
   PROPERTIES LANGUAGE C
 )
 add_executable(CLinter ${CLINTER_SOURCES})
@@ -91,13 +103,17 @@ if(BUILD_TESTING)
   add_test(NAME clinter_mat COMMAND "$<TARGET_FILE:CLinter>" "${CLINTER_REPO_ROOT}/Tests/regression/auto/MatTest.bas")
   set_tests_properties(clinter_mat PROPERTIES PASS_REGULAR_EXPRESSION "MAT PASS" TIMEOUT 20 LABELS "CLinter;regression")
   foreach(case_name IN ITEMS core_flow data_read string_ops math strings if arrays arrays_extended basic_1 factorial regression)
-    add_test(NAME "clinter_${case_name}"
-      COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REGRESSION_RUNNER}"
-        --exe "$<TARGET_FILE:CLinter>" --case "${case_name}")
+    if(case_name STREQUAL "basic_1" AND UNIX)
+      add_test(NAME clinter_basic_1
+        COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/basic1_pty.py"
+          "$<TARGET_FILE:CLinter>" "${CLINTER_REPO_ROOT}/Tests/regression/legacy/Tests/BAS1.bas")
+    else()
+      add_test(NAME "clinter_${case_name}"
+        COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REGRESSION_RUNNER}"
+          --exe "$<TARGET_FILE:CLinter>" --case "${case_name}")
+    endif()
     set_tests_properties("clinter_${case_name}" PROPERTIES TIMEOUT 20 LABELS "CLinter;regression")
-    if(case_name STREQUAL "basic_1")
-      # BAS1.bas requires interactive INKEY$, not yet supported by CLinter.
-      # Keep the test registered, but do not run an infinite loop unattended.
+    if(case_name STREQUAL "basic_1" AND NOT UNIX)
       set_tests_properties(clinter_basic_1 PROPERTIES DISABLED TRUE)
     endif()
   endforeach()
@@ -215,4 +231,90 @@ if(BUILD_TESTING)
         --exe "$<TARGET_FILE:CLinter>" --case "${g4_case}")
     set_tests_properties("clinter_msx2_g4_${g4_case}" PROPERTIES TIMEOUT 20 LABELS "CLinter;regression;GRAPHICS;G4")
   endforeach()
+endif()
+
+# G5: graphics primitives, page isolation, and syntax validation.
+if(BUILD_TESTING)
+  foreach(g5_case IN ITEMS valid invalid)
+    add_test(NAME "clinter_msx2_g5_${g5_case}"
+      COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_g5_cases.py"
+        --exe "$<TARGET_FILE:CLinter>" --case "${g5_case}")
+    set_tests_properties("clinter_msx2_g5_${g5_case}" PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;GRAPHICS;G5")
+  endforeach()
+endif()
+
+# G6: MSX2 sprites (headless, deterministic).
+if(BUILD_TESTING)
+  add_test(NAME clinter_msx2_g6_sprite
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/sprite_g6_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_msx2_g6_sprite PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;GRAPHICS;G6")
+endif()
+
+# G7 sprite magnification, collision controls and unquoted LOAD.
+if(Python3_EXECUTABLE)
+  add_test(NAME clinter_msx2_g7_sprite
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/sprite_g7_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_msx2_g7_sprite PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;GRAPHICS;G7")
+endif()
+
+# G8: extended MSX2 SCREEN 6/7/8 framebuffer pages and color boundaries.
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_msx2_g8_extended
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/graphics_g8_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_msx2_g8_extended PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;GRAPHICS;G8")
+endif()
+
+# M1: simultaneous three-voice MSX BASIC PLAY/MML.
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_msx2_m1_music
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/music_m1_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_msx2_m1_music PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;MUSIC;M1")
+endif()
+
+# M2: numeric notes and independent articulation per PLAY voice.
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_msx2_m2_music
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/music_m2_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_msx2_m2_music PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;MUSIC;M2")
+endif()
+
+# G10 sprite collision interrupt dispatch + M3 PSG/PLAY events.
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_msx2_g10_m3
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/g10_m3_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_msx2_g10_m3 PROPERTIES TIMEOUT 30 LABELS "CLinter;regression;GRAPHICS;MUSIC;G10;M3")
+endif()
+
+# B1+B2 BASIC language compatibility regression.
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_b1b2_language
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/b1b2_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_b1b2_language PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;B1;B2")
+endif()
+
+# B3: variable type declarations and BASIC error-handler control flow.
+if(Python3_EXECUTABLE)
+  add_test(NAME clinter_b3_language
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/b3_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_b3_language PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;B3")
+endif()
+
+# B4: cross-subsystem MSX2 BASIC compatibility (headless, noninteractive).
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_b4_integration
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/b4_integration_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_b4_integration PROPERTIES TIMEOUT 30 LABELS "CLinter;regression;B4;GRAPHICS;MUSIC")
+endif()
+
+# G11 + M4: sprite pattern variables and background music status.
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_g11_m4_integration
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/g11_m4_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_g11_m4_integration PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;G11;M4;GRAPHICS;MUSIC")
+endif()
+
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_d1_duck_integration
+    COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/d1_duck_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_d1_duck_integration PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;D1;GRAPHICS;MUSIC")
 endif()

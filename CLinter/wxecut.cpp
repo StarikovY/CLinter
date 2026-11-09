@@ -1,3 +1,5 @@
+#include "basic_b3.h"
+#include "basic_b1b2.h"
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -9,17 +11,14 @@
 #include "basic_fileio.h"
 #include "screen.h"
 #include "graphics.h"
+#include "sprite.h"
 #include "music.h"
+#include "music_psg.h"
+#include "msx_events.h"
 #include "keyboard.h"
 int exec_assignment_tail(Lexer lx, int duringRun, int currentLine);
 extern int exec_multi(const char*, int, int, int*);
-static int read_filename_after(Lexer *lx, char *out, size_t cap) {
-    lx_next(lx);
-    if (lx->cur.type != T_STRING && lx->cur.type != T_IDENT) return 0;
-    strncpy(out,lx->cur.text,cap-1); out[cap-1]=0;
-    return 1;
-}
-/* -------- DATA pool (lazy build) -------- */
+extern int read_filename_after(Lexer *lx, char *out, size_t cap);
 static char** g_data_vals = NULL;
 static int    g_data_count = 0;
 static int    g_data_ptr = 0;
@@ -242,7 +241,7 @@ Variable* create_numeric_var(const char* name) {
 void set_numeric_var(Variable* v, double val) {
 	if (!v) return;
 	v->type = VT_NUM;
-	v->num = val;
+	v->num = b3_default_type(v->name)==1 ? (double)(long)val : val;
 	if (v->str) { free(v->str); v->str = NULL; }
 }
 /* Execute one assignment statement:
@@ -342,8 +341,6 @@ static int exec_assignment(Lexer* lx) {
 	}
 	/* ---------- END: paste your existing assignment logic ---------- */
 }
-
-
 // EOF
 double fn_eof(int fileno) {
 	if (fileno < 0 || fileno >= MAX_FILES || !g_files[fileno].used || g_files[fileno].fp == NULL)
@@ -404,8 +401,6 @@ static int run_if_single_stmt(Lexer* plx, int currentLine, int* outJump) {
 	return -1;
 }
 
-
-/* ----------------- executor ----------------- */
 extern int matrix_statement(Lexer *lx, double (*read_number)(void));
 extern int pycompat_randomize_statement(Lexer *lx);
 
@@ -415,6 +410,14 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 	lx_init(&lx, src);
 	lx_next(&lx);
 
+    { Lexer probe=lx; int b=b3_statement(&probe,duringRun,currentLine,outJump); if(b!=-2)return b; }
+    { int b=b1b2_statement(&lx,duringRun,currentLine,outJump); if(b!=-2)return b; }
+    if(lx.cur.type==T_ONKW) {
+        int result=msx_event_definition(&lx);
+        if(result!=-2)return result;
+    }
+    if (lx.cur.type == T_IDENT && !_stricmp(lx.cur.text,"SPRITE")) return sprite_event_statement(&lx);
+    if (lx.cur.type == T_IDENT && (!_stricmp(lx.cur.text,"PUT") || !_stricmp(lx.cur.text,"SPRITE$"))) return sprite_statement(&lx);
     if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text, "PAUSE") == 0) {
         double seconds;
         lx_next(&lx);
@@ -422,6 +425,7 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
         if (lx.cur.type != T_END) { puts("ERROR: PAUSE syntax"); return -1; }
         return clinter_pause(seconds);
     }
+    if (lx.cur.type == T_IDENT && (!_stricmp(lx.cur.text,"SOUND") || !_stricmp(lx.cur.text,"BEEP"))) return music_psg_statement(&lx);
     if (lx.cur.type == T_IDENT && _stricmp(lx.cur.text,"PLAY")==0) return music_statement(&lx);
 	if (lx.cur.type == T_IDENT && (_stricmp(lx.cur.text, "SCREEN") == 0 || _stricmp(lx.cur.text, "CLS") == 0 || _stricmp(lx.cur.text, "LOCATE") == 0 || _stricmp(lx.cur.text, "COLOR") == 0)) return screen_statement(&lx);
 	if (lx.cur.type == T_LINE) {
@@ -440,8 +444,7 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		exit(0);
 	}
 
-	/* Example: handle NEW command */
-	if (lx.cur.type == T_NEW) {
+		if (lx.cur.type == T_NEW) {
 		prog_clear();
 		vars_clear();
 		arrays_clear();
@@ -455,8 +458,7 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		return 0;
 	}
 
-	/* ON <expr> GOTO <l1>[,l2,...]   or   ON <expr> GOSUB <l1>[,l2,...] */
-/* ON <expr> GOTO l1[,l2,...]   |   ON <expr> GOSUB l1[,l2,...] */
+	/* ON <expr> GOTO l1[,l2,...]   |   ON <expr> GOSUB l1[,l2,...] */
 	if (lx.cur.type == T_ONKW) {
 		lx_next(&lx);
 		int n = (int)parse_rel(&lx);  // 1-based index
@@ -814,7 +816,6 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
 		free(branch);
 		return rv;
 	}
-
 
 	if (lx.cur.type == T_GOTO) { lx_next(&lx); if (lx.cur.type != T_NUMBER) { printf("ERROR: GOTO needs line\n"); return -1; } *outJump = (int)lx.cur.number; return 1; }
 

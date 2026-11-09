@@ -1,3 +1,7 @@
+#include "basic_b3.h"
+#include "basic_b1b2.h"
+#include "music.h"
+#include "sprite.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,7 +68,7 @@ void sort_program(void) { qsort(g_prog, (size_t)g_prog_count, sizeof(ProgLine), 
 int find_prog_index_by_line(int line) { int lo = 0, hi = g_prog_count - 1; while (lo <= hi) { int mid = (lo + hi) / 2; if (g_prog[mid].number == line) return mid; if (g_prog[mid].number < line) lo = mid + 1; else hi = mid - 1; } return -1; }
 int next_line_number_after(int current) { int i; sort_program(); for (i = 0; i < g_prog_count; i++) { if (g_prog[i].number > current) return g_prog[i].number; } return -1; }
 Variable* find_var(const char* name) { int i; for (i = 0; i < g_var_count; i++) { if (_stricmp(g_vars[i].name, name) == 0) return &g_vars[i]; } return NULL; }
-int is_string_var_name(const char* name) { size_t n = strlen(name); return n > 0 && name[n - 1] == '$'; }
+int is_string_var_name(const char* name) { return b3_default_type(name)==3; }
 Variable* ensure_var(const char* name, int isStr) { Variable* v = find_var(name); if (!v) { if (g_var_count >= MAX_VARS) return NULL; v = &g_vars[g_var_count++]; memset(v, 0, sizeof(*v)); strncpy(v->name, name, sizeof(v->name) - 1); v->type = isStr ? VT_STR : VT_NUM; v->num = 0.0; } else { v->type = isStr ? VT_STR : VT_NUM; } return v; }
 
 static size_t safe_mul(size_t a, size_t b) { return (a == 0 || b == 0) ? 0 : (a * b); }
@@ -330,6 +334,8 @@ extern "C" int exec_multi(const char* src, int duringRun, int currentLine, int* 
 extern "C" void exec_data_reset_for_run(void);
 static void run_program(void) {
     exec_data_reset_for_run();
+    b1b2_reset();
+    b3_reset();
 	int pcIndex = 0;
 
 	if (g_prog_count <= 0) {
@@ -348,6 +354,19 @@ static void run_program(void) {
             printf("\nBREAK at line %d\n",g_prog[pcIndex].number);
             graphics_shutdown();
             return;
+        }
+        /* Sprite interrupt: edge-triggered, dispatch through normal GOSUB stack. */
+        sprite_poll_collision();
+        {
+            int target=sprite_take_event();
+            if(!target)target=music_take_play_event();
+            if(target) {
+                int idx=find_prog_index_by_line(target);
+                if(idx<0) {printf("ERROR: Undefined sprite handler line %d\n",target);return;}
+                if(g_gosub_top>=MAX_STACK) {puts("ERROR: sprite GOSUB stack overflow");return;}
+                g_gosub_stack[g_gosub_top++]=g_prog[pcIndex].number;
+                pcIndex=idx;
+            }
         }
 		int curLine = g_prog[pcIndex].number;
 		const char* src = g_prog[pcIndex].text;
@@ -380,10 +399,19 @@ static void run_program(void) {
 		}
 
 		if (code == 9)       { graphics_shutdown(); return; }
-		else if (code < 0)   { graphics_shutdown(); return; }
+		else if (code < 0)   {
+            int target=b3_handle_error(curLine);
+            if(target){int idx=find_prog_index_by_line(target);if(idx>=0){pcIndex=idx;continue;}}
+            graphics_shutdown(); return;
+        }
 		else if (code == 1) {
 			int idx = find_prog_index_by_line(jump);
-			if (idx < 0) { printf("ERROR: Undefined line %d\n", jump); return; }
+			if (idx < 0) {
+                int target=b3_handle_error(curLine);
+                if(target){idx=find_prog_index_by_line(target);if(idx>=0){pcIndex=idx;continue;}}
+                printf("ERROR: Undefined line %d\n", jump);
+                return;
+            }
 			pcIndex = idx;
 		}
 		else {
@@ -470,6 +498,9 @@ int main(int argc, char* argv[])
 	/* ---- banner ---- */
 	if (autorun == 0)
 	{
+        /* Vintage green-on-black terminal, clean at startup. */
+        fputs("\033[0m\033[38;2;0;255;0m\033[48;2;0;0;0m\033[2J\033[H", stdout);
+        fflush(stdout);
 		printf("     *\n");
 		printf("     *\n");
 		printf("     *       \xB0\n");
