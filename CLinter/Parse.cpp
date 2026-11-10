@@ -23,6 +23,7 @@
 #include <limits.h>
 #include "pycompat.h"
 #include "graphics.h"
+#include "keyboard.h"
 
 #include "runtime.h"
 #include "parse.h"
@@ -226,6 +227,15 @@ static double parse_factor(Lexer* lx) {
         char fname[32]; upcopy(fname, t.text, sizeof(fname));
 
         { double userfn=0; if(b1b2_function(fname,lx,&userfn))return userfn; }
+        if (!strcmp(fname,"CLOCK")) {
+            lx_next(lx);
+            if (lx->cur.type == T_LPAREN) {
+                lx_next(lx);
+                if (lx->cur.type != T_RPAREN) return 0.0;
+                lx_next(lx);
+            }
+            return clinter_clock();
+        }
         if (!strcmp(fname,"POINT")) {
             int x,y;
             lx_next(lx);

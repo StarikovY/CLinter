@@ -11,3 +11,6 @@ int clinter_pause(double seconds);
 }
 #endif
 #endif
+
+/* Monotonic seconds for frame-rate-independent animation. */
+double clinter_clock(void);

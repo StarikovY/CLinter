@@ -50,7 +50,7 @@ int screen_statement(Lexer *lx) {
             }
         }
         if(!screen_end(lx))return screen_error("SCREEN syntax");
-        if(a!=0 && a!=2 && a!=3 && a!=4 && a!=5 && a!=6 && a!=7 && a!=8)return screen_error("unsupported mode (SCREEN 0, 2, 3, 4, 5, 6, 7, 8)");
+        if(a!=0 && a!=2 && a!=3 && a!=4 && a!=5 && a!=6 && a!=7 && a!=8 && a!=20)return screen_error("unsupported mode (SCREEN 0, 2, 3, 4, 5, 6, 7, 8, 20)");
         if(a==0 && has_pages)return screen_error("SCREEN 0 pages");
         if(graphics_current_mode()!=a && graphics_mode(a)!=0)return screen_error("mode");
         if(a!=0){if(sprite_size(spritesize)!=0)return screen_error("sprite size");if(graphics_pages(active,display)!=0)return screen_error("page out of range");return 0;}
@@ -76,7 +76,7 @@ int screen_statement(Lexer *lx) {
         if (!screen_integer(lx,&b) || !screen_end(lx)) return screen_error("LOCATE syntax");
         /* MSX coordinates: X=column, Y=row, both zero-based.
            Permit Y=24 as a compatibility status line: ColorScreen1.bas uses it. */
-        if (a < 0 || a >= 80 || b < 0 || b > 24) return screen_error("LOCATE coordinates out of range");
+        if (a < 0 || a >= (graphics_current_mode()==20?160:80) || b < 0 || b > (graphics_current_mode()==20?59:24)) return screen_error("LOCATE coordinates out of range");
         screen_x = a; screen_y = b;
         if (graphics_active()) { graphics_locate(a,b); return 0; }
         printf("\033[%d;%dH", b+1, a+1);
@@ -111,7 +111,7 @@ int screen_statement(Lexer *lx) {
             graphics_border(border);
         }
         if (!screen_end(lx)) return screen_error("COLOR syntax");
-        if (a < 0 || a > (graphics_current_mode()==8?255:(graphics_current_mode()==6?3:15)) || b < 0 || b > (graphics_current_mode()==8?255:(graphics_current_mode()==6?3:15))) return screen_error("COLOR index out of range");
+        if (a < 0 || a > ((graphics_current_mode()==8 || graphics_current_mode()==20)?255:(graphics_current_mode()==6?3:15)) || b < 0 || b > ((graphics_current_mode()==8 || graphics_current_mode()==20)?255:(graphics_current_mode()==6?3:15))) return screen_error("COLOR index out of range");
         screen_foreground = a; screen_background = b;
         graphics_color(a,b);
         if (graphics_active()) return 0;

@@ -108,15 +108,16 @@ static const unsigned char input_font[95][12] = {
     {0x40,0x40,0x40,0x40,0x40,0x40,0x40,0x40,0xc0,0x00,0x00,0x00},
     {0x00,0x00,0x00,0x00,0x68,0x58,0x00,0x00,0x00,0x00,0x00,0x00}
 };
-#define GW 512
-#define GH 212
+#define GW 1280
+#define GH 720
 /* CLinter page model: SCREEN 5/6 four pages, SCREEN 7 two pages, SCREEN 8 one page. */
 #define MAX_PAGES 4
 static unsigned char pages[MAX_PAGES][GW*GH];
 static int active_page=0, display_page=0, page_count=0;
 #define pixels (pages[active_page])
 static int mode, width, ink=15, paper=0, border_color=0;
-static int color_limit(void) { return mode==6?3:(mode==8?255:15); }
+static int graphics_height(void) { return mode==20?720:212; }
+static int color_limit(void) { return mode==6?3:((mode==8 || mode==20)?255:15); }
 static int text_col=0, text_row=0;
 static unsigned int rgb_palette[16];
 #ifdef CLINTER_HAVE_SDL2
@@ -141,14 +142,14 @@ static void reset_palette(void) {
     int i;
     for(i=0;i<16;i++)palette[i]=defaults[i];
     /* MSX2 SCREEN 8: GRB 3:3:2 direct-color encoding. */
-    if(mode==8)for(i=0;i<256;i++){
+    if(mode==8 || mode==20)for(i=0;i<256;i++){
         unsigned int gr=(unsigned int)((i>>5)&7),red=(unsigned int)((i>>2)&7),blue=(unsigned int)(i&3);
         palette[i]=0xff000000u|((red*255/7)<<16)|((gr*255/7)<<8)|(blue*255/3);
     }
 }
 #endif /* CLINTER_HAVE_SDL2 palette initialization */
 int graphics_set_palette(int index,int red,int green,int blue) {
-    if(index<0 || index>15 || red<0 || red>7 || green<0 || green>7 || blue<0 || blue>7 || mode==8)return -1;
+    if(index<0 || index>15 || red<0 || red>7 || green<0 || green>7 || blue<0 || blue>7 || (mode==8 || mode==20))return -1;
     rgb_palette[index]=(unsigned int)((red<<6)|(green<<3)|blue);
 #ifdef CLINTER_HAVE_SDL2
     palette[index]=0xff000000u|((unsigned int)(red*255/7)<<16)|((unsigned int)(green*255/7)<<8)|(unsigned int)(blue*255/7);
@@ -165,8 +166,8 @@ int graphics_get_palette(int index,int *red,int *green,int *blue) {
 /* Embedded 8x12 bitmap font for SDL INPUT overlay (ASCII 32..126). */
 
 static void draw_input_text(const char *message) {
-    int x=6, y=GH-19, k, j, b;
-    SDL_Rect background={0,GH-23,width,23};
+    int x=6, y=graphics_height()-19, k, j, b;
+    SDL_Rect background={0,graphics_height()-23,width,23};
     SDL_SetRenderDrawBlendMode(renderer,SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer,0,0,0,235);
     SDL_RenderFillRect(renderer,&background);
@@ -189,6 +190,8 @@ static void game_event(const SDL_Event *e) {
         else if(key==SDLK_SPACE) queued_game_key=' ';
         else if(key==SDLK_RETURN || key==SDLK_KP_ENTER) queued_game_key=13;
         else if(key==SDLK_ESCAPE) queued_game_key=27;
+        else if(key==SDLK_LEFT) queued_game_key=28;
+        else if(key==SDLK_RIGHT) queued_game_key=29;
     }
 }
 int graphics_read_key(void) {
@@ -198,12 +201,12 @@ int graphics_read_key(void) {
     key=queued_game_key;queued_game_key=0;return key;
 }
 static void present(void) {
-    unsigned int argb[GW*GH]; int x,y;
+    static unsigned int argb[GW*GH]; int x,y, h=graphics_height();
     SDL_Event event;
     if (!renderer || !texture) return;
     if (!input_waiting) while (SDL_PollEvent(&event)) game_event(&event);
-    for(y=0;y<GH;y++) for(x=0;x<width;x++) argb[y*width+x]=palette[pages[display_page][y*GW+x]];
-    sprite_overlay(argb,width,GH,palette);
+    for(y=0;y<h;y++) for(x=0;x<width;x++) argb[y*width+x]=palette[pages[display_page][y*GW+x]];
+    sprite_overlay(argb,width,h,palette);
     SDL_UpdateTexture(texture,NULL,argb,width*(int)sizeof(unsigned int));
     SDL_RenderClear(renderer); SDL_RenderCopy(renderer,texture,NULL,NULL);
     if (input_waiting) draw_input_text(input_overlay);
@@ -268,10 +271,10 @@ void graphics_shutdown(void) {
 }
 static int draw_x=0,draw_y=0;
 int graphics_mode(int newmode) {
-    if(newmode!=0 && newmode!=2 && newmode!=3 && newmode!=4 && newmode!=5 && newmode!=6 && newmode!=7 && newmode!=8) return -1;
+    if(newmode!=0 && newmode!=2 && newmode!=3 && newmode!=4 && newmode!=5 && newmode!=6 && newmode!=7 && newmode!=8 && newmode!=20) return -1;
     if(newmode==0) { graphics_shutdown(); return 0; }
     sprite_reset();
-    mode=newmode; memset(rgb_palette,0,sizeof(rgb_palette)); width=(mode==5 || mode==2 || mode==3 || mode==4 || mode==8)?256:512; ink=(mode==6)?3:15; paper=0;
+    mode=newmode; memset(rgb_palette,0,sizeof(rgb_palette)); width=mode==20?1280:((mode==5 || mode==2 || mode==3 || mode==4 || mode==8)?256:512); ink=(mode==6)?3:(mode==20?255:15); paper=0;
     memset(pages,0,sizeof(pages));/* Keep SCREEN 8 single-page until its page layout is implemented; G3 relies on this. */
     page_count=(mode==2 || mode==3 || mode==4)?1:((mode==5 || mode==6)?4:((mode==7)?2:1));active_page=display_page=0;draw_x=draw_y=0;
 #ifdef CLINTER_HAVE_SDL2
@@ -282,10 +285,10 @@ int graphics_mode(int newmode) {
             if(texture) { SDL_DestroyTexture(texture); texture=NULL; }
             if(renderer) { SDL_DestroyRenderer(renderer); renderer=NULL; }
             if(window) { SDL_DestroyWindow(window); window=NULL; }
-            window=SDL_CreateWindow("CLinter MSX2 Graphics",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,width*2,GH*2,SDL_WINDOW_SHOWN);
+            window=SDL_CreateWindow("CLinter MSX2 Graphics",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,mode==20?1280:width*2,mode==20?720:graphics_height()*2,SDL_WINDOW_SHOWN);
             if(window) renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
             if(!renderer && window) renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
-            if(renderer) { SDL_RenderSetLogicalSize(renderer,width,GH); texture=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,width,GH); }
+            if(renderer) { SDL_RenderSetLogicalSize(renderer,width,graphics_height()); texture=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,width,graphics_height()); }
             if(!texture) { fprintf(stderr,"WARNING: SDL2 window unavailable; graphics framebuffer remains active\n"); }
         } else fprintf(stderr,"WARNING: SDL2 video unavailable; graphics framebuffer remains active\n");
     }
@@ -296,7 +299,7 @@ int graphics_pages(int active,int display) {
     if(!mode || active<0 || display<0 || active>=page_count || display>=page_count)return -1;
     active_page=active;display_page=display;present();return 0;
 }
-void graphics_clear(void) { if(mode) { memset(pixels,paper,sizeof(pixels)); text_col=text_row=0; present(); } }
+void graphics_clear(void) { if(mode) { memset(pixels,paper,(size_t)GW*graphics_height()); text_col=text_row=0; present(); } }
 void graphics_color(int foreground,int background) { ink=foreground; paper=background; }
 void graphics_border(int color) { border_color=color; (void)border_color; }
 void graphics_locate(int col,int row) { text_col=col; text_row=row; }
@@ -311,14 +314,14 @@ void graphics_text(const char *text,size_t count) {
         x=text_col*8;y=text_row*12;
         if(ch<32 || ch>126)ch='?';
         for(j=0;j<12;j++)for(b=0;b<8;b++)
-            if(y+j>=0 && y+j<GH && x+b<width && (input_font[ch-32][j] & (0x80>>b)))
+            if(y+j>=0 && y+j<graphics_height() && x+b<width && (input_font[ch-32][j] & (0x80>>b)))
                 pixels[(y+j)*GW+x+b]=(unsigned char)ink;
         text_col++;
     }
     present();
 }
-int graphics_point(int x,int y) { return (mode && x>=0 && x<width && y>=0 && y<GH)?pixels[y*GW+x]:-1; }
-static void pixel(int x,int y,int c) { if(x>=0 && x<width && y>=0 && y<GH) pixels[y*GW+x]=(unsigned char)c; }
+int graphics_point(int x,int y) { return (mode && x>=0 && x<width && y>=0 && y<graphics_height())?pixels[y*GW+x]:-1; }
+static void pixel(int x,int y,int c) { if(x>=0 && x<width && y>=0 && y<graphics_height()) pixels[y*GW+x]=(unsigned char)c; }
 static void line(int x0,int y0,int x1,int y1,int c) {
     int dx=abs(x1-x0),sx=x0<x1?1:-1,dy=-abs(y1-y0),sy=y0<y1?1:-1,err=dx+dy;
     for(;;) { pixel(x0,y0,c); if(x0==x1 && y0==y1) break;
@@ -362,13 +365,13 @@ static void circle_arc(int cx,int cy,int r,int c,double start,double end,double 
 }
 /* Bounded scanline-free flood fill: each pixel is pushed at most once. */
 static int flood_border(int x,int y,int c,int border,int use_border) {
-    int *stack,top=0,limit=width*GH,old=graphics_point(x,y);
+    int *stack,top=0,limit=width*graphics_height(),old=graphics_point(x,y);
     if(old<0 || old==c || (use_border && old==border))return 0;
     stack=(int*)malloc((size_t)limit*sizeof(int));if(!stack)return -1;
     pixel(x,y,c);stack[top++]=y*width+x;
     while(top) {
         int v=stack[--top],px=v%width,py=v/width,nx[4]={px-1,px+1,px,px},ny[4]={py,py,py-1,py+1},k;
-        for(k=0;k<4;k++) if(nx[k]>=0 && nx[k]<width && ny[k]>=0 && ny[k]<GH) {
+        for(k=0;k<4;k++) if(nx[k]>=0 && nx[k]<width && ny[k]>=0 && ny[k]<graphics_height()) {
             int existing=graphics_point(nx[k],ny[k]);
             if((use_border?(existing!=border && existing!=c):(existing==old))) {
                 pixel(nx[k],ny[k],c);stack[top++]=ny[k]*width+nx[k];
@@ -491,13 +494,13 @@ int graphics_statement(Lexer *lx) {
         if(expect(lx,T_COMMA) && !number(lx,&source_page))return fail("COPY source page");
         if(!expect(lx,T_TO)||!coord(lx,&dx,&dy))return fail("COPY TO coordinates");
         if(expect(lx,T_COMMA) && !number(lx,&dest_page))return fail("COPY destination page");
-        if(lx->cur.type!=T_END || source_page<0 || source_page>=page_count || dest_page<0 || dest_page>=page_count || x<0 || y<0 || x2<x || y2<y || x2>=width || y2>=GH)return fail("COPY range/page/syntax");
+        if(lx->cur.type!=T_END || source_page<0 || source_page>=page_count || dest_page<0 || dest_page>=page_count || x<0 || y<0 || x2<x || y2<y || x2>=width || y2>=graphics_height())return fail("COPY range/page/syntax");
         sw=x2-x+1;sh=y2-y+1;count=(size_t)sw*(size_t)sh;
         snapshot=(unsigned char*)malloc(count);if(!snapshot)return fail("COPY out of memory");
         for(yy=0;yy<sh;yy++)memcpy(snapshot+(size_t)yy*sw,pages[source_page]+(size_t)(y+yy)*GW+x,(size_t)sw);
         for(yy=0;yy<sh;yy++)for(xx=0;xx<sw;xx++) {
             int tx=dx+xx,ty=dy+yy;
-            if(tx>=0 && tx<width && ty>=0 && ty<GH)pages[dest_page][(size_t)ty*GW+tx]=snapshot[(size_t)yy*sw+xx];
+            if(tx>=0 && tx<width && ty>=0 && ty<graphics_height())pages[dest_page][(size_t)ty*GW+tx]=snapshot[(size_t)yy*sw+xx];
         }
         free(snapshot);
     } else if(!_stricmp(op,"DRAW")) {

@@ -14,6 +14,19 @@
 #include <errno.h>
 #include <time.h>
 #endif
+double clinter_clock(void) {
+#if defined(_WIN32)
+    static LARGE_INTEGER frequency;
+    LARGE_INTEGER counter;
+    if (!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+#endif
+}
 int clinter_inkey(void) {
     int game_key=graphics_read_key();
     if(game_key)return game_key;

@@ -318,3 +318,13 @@ if(BUILD_TESTING AND Python3_EXECUTABLE)
     COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/Tests/regression/d1_duck_cases.py" "$<TARGET_FILE:CLinter>")
   set_tests_properties(clinter_d1_duck_integration PROPERTIES TIMEOUT 25 LABELS "CLinter;regression;D1;GRAPHICS;MUSIC")
 endif()
+
+# CLinter extension: 1280x720 indexed 256-color SCREEN 20.
+if(BUILD_TESTING)
+  add_test(NAME clinter_screen20_720p
+    COMMAND "$<TARGET_FILE:CLinter>" "${CLINTER_REPO_ROOT}/Tests/regression/auto/Screen20AutoTest.bas")
+  set_tests_properties(clinter_screen20_720p PROPERTIES
+    PASS_REGULAR_EXPRESSION "SCREEN20 PASS"
+    FAIL_REGULAR_EXPRESSION "SCREEN20 FAIL;ERROR:"
+    TIMEOUT 20 LABELS "CLinter;regression;GRAPHICS;SCREEN20")
+endif()
