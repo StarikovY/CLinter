@@ -9,8 +9,8 @@
 55 PRINT TAB ( 16 ) ; "*************************" 
 60 PRINT : PRINT : PRINT 
 80 REM*****INITIALIZATION********** 
-100 DIM S ( 36 ) , R ( 36 ) , N ( 36 ) 
-105 DIM KEYWORD$ ( 36 ) , WORDIN$ ( 7 ) , WORDOUT$ ( 7 ) , REPLIES$ ( 112 ) 
+100 DIM S ( 37 ) , R ( 37 ) , N ( 37 ) 
+105 DIM KEYWORD$ ( 37 ) , WORDIN$ ( 8 ) , WORDOUT$ ( 8 ) , REPLIES$ ( 113 ) 
 107 REM NEED TO PRE-DECLARE BEFORE USE
 108 P$ = "NULL"
 110 N1 = 36 : N2 = 14 : N3 = 112 

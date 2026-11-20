@@ -12,9 +12,9 @@
 100 PRINT "CAPSULE WEIGHT 32,500 LBS; FUEL WEIGHT 16,000 LBS." 
 110 PRINT : PRINT : PRINT "GOOD LUCK" 
 120 L = 0 
-130 PRINT : PRINT "SEC "; TAB(10);  "MI+FT "; TAB(20); "MPH"; TAB(30); "LB FUEL"; TAB(40);  "BURN RATE" : PRINT 
+130 PRINT : PRINT " SEC | ALTITUDE MI+FT | MPH   | FUEL LB | BURN RATE" : PRINT "-----+----------------+-------+---------+----------"
 140 A = 120.0 : V = 1 : M = 33000 :  N = 16500 : G = 0.001 : Z = 1.8 
-150 PRINT TAB(1); L ; TAB(10); INT ( A ); "+"; INT ( 5280 * ( A - INT ( A ) ) ) ; TAB(20); INT(3600 * V) ; TAB(30); M - N; TAB(40); : INPUT K : T = 10
+150 PRINT USING "####"; L; : PRINT " | "; : PRINT USING "###"; INT(A); : PRINT "+"; : PRINT USING "####"; INT(5280*(A-INT(A))); : PRINT "       | "; : PRINT USING "#####"; INT(3600*V); : PRINT " | "; : PRINT USING "#####"; M-N; : PRINT "   | "; : INPUT K : T=10
 160 IF (M - N) < 0.001 THEN GOTO 240 
 170 IF T < 0.001 THEN 150 
 180 S = T : IF M >= (N + S * K) THEN 200 
