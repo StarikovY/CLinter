@@ -367,3 +367,6 @@ builds/drops/*
 CLinter_snapshot_small.zip
 builds/.DS_Store
 builds/build_scripts/.DS_Store
+packaging/macos/.DS_Store
+packaging/.DS_Store
+.DS_Store
