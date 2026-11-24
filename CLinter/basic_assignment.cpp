@@ -23,7 +23,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 			lx_next(&lx);
 			while (lx.cur.type != T_RPAREN && lx.cur.type != T_END) {
 				if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); return -1; }
-				subs[nsubs++] = (int)parse_rel(&lx);
+				subs[nsubs++] = parse_subscript(&lx);
 				if (lx.cur.type == T_COMMA) { lx_next(&lx); continue; }
 				else break;
 			}
@@ -49,7 +49,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 					if (_stricmp(srcname, "CHR$") == 0) {
 						if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
 						{
-							double v = parse_rel(&lx); char ch[2]; ch[0] = (char)((int)v); ch[1] = 0;
+							double v = parse_rel(&lx); char ch[2]; ch[0] = (char)checked_parameter(v); ch[1] = 0;
 							SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
 							sarray_set(sa, subs, nsubs, ch);
 						}
@@ -79,11 +79,11 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 							else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
 								Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
 							}
-							if (lx.cur.type == T_COMMA) { lx_next(&lx); start = (int)parse_rel(&lx); }
-							if (lx.cur.type == T_COMMA) { lx_next(&lx); len = (int)parse_rel(&lx); }
+							if (lx.cur.type == T_COMMA) { lx_next(&lx); start = checked_parameter(parse_rel(&lx)); }
+							if (lx.cur.type == T_COMMA) { lx_next(&lx); len = checked_parameter(parse_rel(&lx)); }
 							if (lx.cur.type == T_RPAREN) lx_next(&lx);
 							{
-								int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl; int l = len; if (l < 0) l = 0; if (i0 + l > sl) l = sl - i0;
+								int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl; int l = len; if (l < 0) l = 0; if (l > sl-i0) l = sl - i0;
 								char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1; memcpy(tmp, s + i0, l); tmp[l] = 0;
 								SArray* sa = sarray_find(name); if (!sa) { printf("ERROR: UNDIM'D ARRAY %s\n", name); return -1; }
 								sarray_set(sa, subs, nsubs, tmp);
@@ -112,7 +112,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 						lx_next(&lx);
 						while (lx.cur.type != T_RPAREN && lx.cur.type != T_END) {
 							if (n2 >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); return -1; }
-							s2[n2++] = (int)parse_rel(&lx);
+							s2[n2++] = parse_subscript(&lx);
 							if (lx.cur.type == T_COMMA) { lx_next(&lx); continue; }
 							else break;
 						}
@@ -190,7 +190,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
                 else if (_stricmp(sname, "CHR$") == 0) {
 					if (lx.cur.type == T_LPAREN) { lx_next(&lx); }
 					{
-						double v = parse_rel(&lx); char ch[2]; ch[0] = (char)((int)v); ch[1] = 0;
+						double v = parse_rel(&lx); char ch[2]; ch[0] = (char)checked_parameter(v); ch[1] = 0;
 						Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(ch);
 					}
 					if (lx.cur.type == T_RPAREN) lx_next(&lx);
@@ -216,11 +216,11 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 						else if (lx.cur.type == T_IDENT && is_string_var_name(lx.cur.text)) {
 							Variable* v = find_var(lx.cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(&lx);
 						}
-						if (lx.cur.type == T_COMMA) { lx_next(&lx); start = (int)parse_rel(&lx); }
-						if (lx.cur.type == T_COMMA) { lx_next(&lx); len = (int)parse_rel(&lx); }
+						if (lx.cur.type == T_COMMA) { lx_next(&lx); start = checked_parameter(parse_rel(&lx)); }
+						if (lx.cur.type == T_COMMA) { lx_next(&lx); len = checked_parameter(parse_rel(&lx)); }
 						if (lx.cur.type == T_RPAREN) lx_next(&lx);
 						{
-							int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl; int l = len; if (l < 0) l = 0; if (i0 + l > sl) l = sl - i0;
+							int sl = (int)strlen(s), i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl; int l = len; if (l < 0) l = 0; if (l > sl-i0) l = sl - i0;
 							char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1; memcpy(tmp, s + i0, l); tmp[l] = 0;
 							Variable* dst = ensure_var(name, 1); if (dst->str) free(dst->str); dst->str = strdup_c(tmp);
 						}
@@ -266,7 +266,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 					if (lx.cur.type == T_COMMA) 
 					{ 
 						lx_next(&lx); 
-						n = (int)parse_rel(&lx);
+						n = checked_parameter(parse_rel(&lx));
 					}
 
 					if (lx.cur.type == T_RPAREN) 
@@ -321,7 +321,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 					if (lx.cur.type == T_COMMA) 
 					{ 
 						lx_next(&lx); 
-						n = (int)parse_rel(&lx); 
+						n = checked_parameter(parse_rel(&lx)); 
 					}
 
 					if (lx.cur.type == T_RPAREN) 
@@ -361,11 +361,11 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 					else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
 						Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
 					}
-					if (lx->cur.type == T_COMMA) { lx_next(lx); start = (int)parse_logic(lx); }
-					if (lx->cur.type == T_COMMA) { lx_next(lx); len = (int)parse_logic(lx); }
+					if (lx->cur.type == T_COMMA) { lx_next(lx); start = checked_parameter(parse_logic(lx)); }
+					if (lx->cur.type == T_COMMA) { lx_next(lx); len = checked_parameter(parse_logic(lx)); }
 					if (lx->cur.type == T_RPAREN) lx_next(lx);
 					if (start < 1) start = 1; int sl = (int)strlen(s); int i0 = start - 1; if (i0 > sl) i0 = sl;
-					int l = (len > 0 ? len : (sl - i0)); if (i0 + l > sl) l = sl - i0; if (l < 0) l = 0;
+					int l = (len > 0 ? len : (sl - i0)); if (l > sl-i0) l = sl - i0; if (l < 0) l = 0;
 					char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
 					memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
 				}
@@ -379,7 +379,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 					lx_next(&lx);
 					while (lx.cur.type != T_RPAREN && lx.cur.type != T_END) {
 						if (n2 >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); return -1; }
-						s2[n2++] = (int)parse_rel(&lx);
+						s2[n2++] = parse_subscript(&lx);
 						if (lx.cur.type == T_COMMA) { lx_next(&lx); continue; }
 						else break;
 					}
@@ -397,7 +397,7 @@ int exec_assignment_tail(Lexer lx, int duringRun, int currentLine) {
 			}
 			else { printf("ERROR: string assignment needs a string\n"); return -1; }
 		}
-		else { double vnum = parse_rel(&lx); ensure_var(name, 0)->num = b3_default_type(name)==1 ? (double)(long)vnum : vnum; }
+		else { double vnum = parse_rel(&lx); set_numeric_var(ensure_var(name,0),vnum); }
 		return 0;
 	}
 

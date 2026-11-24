@@ -54,8 +54,8 @@ int parse_string_primitive(Lexer* lx, SBuf* sb) {
     parse_string_expr_to_buf(lx, &inner);
     if (lx->cur.type == T_COMMA) {
         lx_next(lx);
-        start = (int)parse_rel(lx);
-        if (lx->cur.type == T_COMMA) { lx_next(lx); count=(int)parse_rel(lx); has_count=1; }
+        start = checked_parameter(parse_rel(lx));
+        if (lx->cur.type == T_COMMA) { lx_next(lx); count=checked_parameter(parse_rel(lx)); has_count=1; }
     }
     if (lx->cur.type == T_RPAREN) lx_next(lx);
     length=(int)strlen(source);

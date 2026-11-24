@@ -1,3 +1,4 @@
+#include "numeric.h"
 #include "basic_b3.h"
 #include "parse.h"
 #include <stdio.h>
@@ -35,8 +36,8 @@ int b3_statement(Lexer *lx,int duringRun,int currentLine,int *jump){
         lx_next(lx);
         if(lx->cur.type!=T_GOTO){puts("ERROR: ON ERROR requires GOTO");return -1;}
         lx_next(lx);
-        if(lx->cur.type!=T_NUMBER || lx->cur.number<0 || (int)lx->cur.number!=lx->cur.number){puts("ERROR: ON ERROR line");return -1;}
-        handler=(int)lx->cur.number;active=0;failing=0;lx_next(lx);
+        if(lx->cur.type!=T_NUMBER || !numeric_i32(lx->cur.number,NUM_EXACT,0,INT32_MAX,&handler)){puts("ERROR: ON ERROR line");return -1;}
+        active=0;failing=0;lx_next(lx);
         if(lx->cur.type!=T_END){puts("ERROR: ON ERROR syntax");return -1;}
         return 0;
     }
@@ -46,7 +47,7 @@ int b3_statement(Lexer *lx,int duringRun,int currentLine,int *jump){
         if(!duringRun){puts("ERROR: RESUME outside RUN");return -1;}
         lx_next(lx);
         if(lx->cur.type==T_IDENT && !_stricmp(lx->cur.text,"NEXT")){target=b3_resume_target(1);lx_next(lx);}
-        else if(lx->cur.type==T_NUMBER){target=(int)lx->cur.number;if(!active){puts("ERROR: RESUME without error");return -1;}active=0;failing=0;lx_next(lx);}
+        else if(lx->cur.type==T_NUMBER){if (!numeric_i32(lx->cur.number,NUM_EXACT,0,INT32_MAX,&target)) { parse_numeric_error(); return -1; }if(!active){puts("ERROR: RESUME without error");return -1;}active=0;failing=0;lx_next(lx);}
         else target=b3_resume_target(0);
         if(target<0 || lx->cur.type!=T_END){puts("ERROR: RESUME syntax/state");return -1;}
         *jump=target;return 1;

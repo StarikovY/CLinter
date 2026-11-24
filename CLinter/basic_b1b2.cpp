@@ -105,7 +105,7 @@ int b1b2_statement(Lexer *lx,int duringRun,int currentLine,int *jump){
     free(g_arrays[i].data);for(int j=i;j+1<g_array_count;j++)g_arrays[j]=g_arrays[j+1];g_array_count--;found=1;break;
    }
    for(i=0;i<g_sarray_count;i++)if(keyword(name,g_sarrays[i].name)){
-    int n=1;for(int k=0;k<g_sarrays[i].ndims;k++)n*=g_sarrays[i].dims[k];
+    int n=1;for(int k=0;k<g_sarrays[i].ndims;k++)n*=g_sarrays[i].dims[k]+1;
     for(int k=0;k<n;k++)free(g_sarrays[i].data[k]);free(g_sarrays[i].data);
     for(int j=i;j+1<g_sarray_count;j++)g_sarrays[j]=g_sarrays[j+1];g_sarray_count--;found=1;break;
    }
@@ -135,8 +135,8 @@ int b1b2_statement(Lexer *lx,int duringRun,int currentLine,int *jump){
   lx_next(lx);if(lx->cur.type!=T_IDENT||!is_string_var_name(lx->cur.text))return fail("MID$ string variable");
   char name[32];strncpy(name,lx->cur.text,31);name[31]=0;
   lx_next(lx);if(lx->cur.type!=T_COMMA)return fail("MID$ comma");
-  lx_next(lx);int start=(int)parse_rel(lx),length=-1;
-  if(lx->cur.type==T_COMMA){lx_next(lx);length=(int)parse_rel(lx);}
+  lx_next(lx);int start=checked_parameter(parse_rel(lx)),length=-1;
+  if(lx->cur.type==T_COMMA){lx_next(lx);length=checked_parameter(parse_rel(lx));}
   if(lx->cur.type!=T_RPAREN)return fail("MID$ )");
   lx_next(lx);if(lx->cur.type!=T_EQ)return fail("MID$ =");
   lx_next(lx);char buf[4096];SBuf sb;sbuf_init(&sb,buf,sizeof(buf));parse_string_expr_to_buf(lx,&sb);

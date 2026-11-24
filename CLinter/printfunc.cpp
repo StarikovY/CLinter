@@ -1,3 +1,4 @@
+#include "numeric.h"
 /* printfunc.cpp — PRINT statement implementation split out of wxecut.cpp
    - Supports: PRINT, PRINT #n, string concatenation with '+',
                CHR$/STR$/SEG$/TRM$, string vars & string arrays,
@@ -134,7 +135,7 @@ static void parse_print_term_to_bb(Lexer* lx, ByteBuf* bb, int* is_string) {
             if (lx->cur.type == T_LPAREN) lx_next(lx);
             {
                 double v = parse_rel(lx);
-                int code = (int)v;
+                int code = checked_parameter(v);
                 if (code < 0)   code = 0;
                 if (code > 255) code = 255;
                 if (code >= 32) {
@@ -165,11 +166,11 @@ static void parse_print_term_to_bb(Lexer* lx, ByteBuf* bb, int* is_string) {
                     Variable* v = find_var(lx->cur.text);
                     s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
                 }
-                if (lx->cur.type == T_COMMA) { lx_next(lx); start = (int)parse_rel(lx); }
-                if (lx->cur.type == T_COMMA) { lx_next(lx); len = (int)parse_rel(lx); }
+                if (lx->cur.type == T_COMMA) { lx_next(lx); start = checked_parameter(parse_rel(lx)); }
+                if (lx->cur.type == T_COMMA) { lx_next(lx); len = checked_parameter(parse_rel(lx)); }
                 int sl = (int)strlen(s);
                 int i0 = start < 1 ? 0 : start - 1; if (i0 > sl) i0 = sl;
-                int l = (len > 0 ? len : (sl - i0)); if (i0 + l > sl) l = sl - i0; if (l < 0) l = 0;
+                int l = (len > 0 ? len : (sl - i0)); if (l > sl-i0) l = sl - i0; if (l < 0) l = 0;
                 bb_append(bb, s + i0, (size_t)l);
             }
             if (is_string) *is_string = 1;
@@ -203,7 +204,7 @@ static void parse_print_term_to_bb(Lexer* lx, ByteBuf* bb, int* is_string) {
             lx_next(lx);
             while (lx->cur.type != T_RPAREN && lx->cur.type != T_END && !lx_peek_stmt_sep(lx)) {
                 if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); break; }
-                subs[nsubs++] = (int)parse_rel(lx);
+                subs[nsubs++] = parse_subscript(lx);
                 if (lx->cur.type == T_COMMA) { lx_next(lx); if (lx_peek_stmt_sep(lx)) break; continue; }
                 else break;
             }
@@ -326,7 +327,7 @@ int exec_print(Lexer* lx) {
     if (lx->cur.type == T_HASH) {
         lx_next(lx);
         if (lx->cur.type != T_NUMBER) { printf("ERROR: PRINT # needs handle\n"); return -1; }
-        int h = (int)lx->cur.number;
+        int32_t h; if (!numeric_i32(lx->cur.number,NUM_EXACT,0,MAX_FILES-1,&h)) { parse_numeric_error(); return -1; }
         FILE* fp = NULL;
         if (h >= 0 && h < MAX_FILES && g_files[h].used) fp = g_files[h].fp;
         if (!fp) { printf("ERROR: bad handle\n"); return -1; }
@@ -354,8 +355,8 @@ int exec_print(Lexer* lx) {
                 lx_next(lx);
                 if (lx->cur.type == T_LPAREN) lx_next(lx);
                 {
-                    int n = (int)parse_rel(lx);
-                    if (n < 1) n = 1;
+                    int n = checked_parameter(parse_rel(lx));
+                    if (parse_numeric_failed() || n>65535) { parse_numeric_error(); return -1; } if (n < 1) n = 1;
                     int target = n - 1; /* 0-based */
                     while (g_print_col < target) { if (out == stdout && graphics_active()) graphics_text(" ",1); else fputc(' ', out); g_print_col++; }
                 }

@@ -135,6 +135,8 @@ int  find_prog_index_by_line(int line);
 int  next_line_number_after(int current);
 Variable* find_var(const char *name);
 Variable* ensure_var(const char *name, int isStr);
+int assign_numeric_value(const char *name, double value, double *out);
+void set_numeric_var(Variable *v, double val);
 int  is_string_var_name(const char *name);
 void prog_set_line(int line, const char *text);
 void prog_clear(void);

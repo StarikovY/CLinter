@@ -1,3 +1,4 @@
+#include "numeric.h"
 /* CLinter sequential file operations. Compiled as C by CMake. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,8 +10,7 @@
 
 static int channel(Lexer *lx, int *out) {
     if (lx->cur.type == T_HASH) lx_next(lx);
-    if (lx->cur.type != T_NUMBER || lx->cur.number != (int)lx->cur.number) return 0;
-    *out = (int)lx->cur.number;
+    if (lx->cur.type != T_NUMBER || !numeric_i32(lx->cur.number,NUM_EXACT,0,MAX_FILES-1,out)) return 0;
     if (*out < 0 || *out >= MAX_FILES) return 0;
     lx_next(lx);
     return 1;
@@ -42,8 +42,8 @@ int basic_fileio_statement(Lexer *lx, int *outJump) {
         if (!channel(lx, &n) || lx->cur.type != T_COMMA) { puts("ERROR: FSEEK needs #channel,offset"); return -1; }
         lx_next(lx);
         offset = parse_rel(lx);
-        if (offset < 0 || offset > 2147483647.0 || offset != (long)offset) { puts("ERROR: invalid FSEEK offset"); return -1; }
-        if (!g_files[n].used || !g_files[n].fp || fseek(g_files[n].fp, (long)offset, SEEK_SET) != 0) { puts("ERROR: FSEEK failed"); return -1; }
+        int32_t pos; if (!numeric_i32(offset,NUM_EXACT,0,INT32_MAX,&pos)) { puts("ERROR: invalid FSEEK offset"); return -1; }
+        if (!g_files[n].used || !g_files[n].fp || fseek(g_files[n].fp, (long)pos, SEEK_SET) != 0) { puts("ERROR: FSEEK failed"); return -1; }
         return 0;
     }
     if (lx->cur.type == T_OPEN) {
@@ -66,10 +66,10 @@ int basic_fileio_statement(Lexer *lx, int *outJump) {
         int else_line = -1;
         if (lx->cur.type == T_ELSE) {
             lx_next(lx);
-            if (lx->cur.type != T_NUMBER || lx->cur.number < 0 || lx->cur.number != (int)lx->cur.number) {
+            if (lx->cur.type != T_NUMBER || !numeric_i32(lx->cur.number,NUM_EXACT,0,INT32_MAX,&else_line)) {
                 puts("ERROR: OPEN ELSE needs line number"); return -1;
             }
-            else_line = (int)lx->cur.number;
+            
             lx_next(lx);
         }
         if (g_files[n].used) {
@@ -105,7 +105,7 @@ int basic_fileio_statement(Lexer *lx, int *outJump) {
         fp=g_files[n].fp;
         if (lx->cur.type==T_COMMA || lx->cur.type==T_SEMI) lx_next(lx);
         for (;;) {
-            char name[128], buf[1024], *end; Variable *v;
+            char name[128], buf[1024]; Variable *v;
             int str;
             if (lx->cur.type!=T_IDENT) { puts("ERROR: INPUT # needs variable"); return -1; }
             strncpy(name,lx->cur.text,sizeof(name)-1); name[sizeof(name)-1]=0;
@@ -119,10 +119,9 @@ int basic_fileio_statement(Lexer *lx, int *outJump) {
                 if (!copy) { puts("ERROR: out of memory"); return -1; }
                 free(v->str); v->str=copy;
             } else {
-                double value=strtod(buf,&end);
-                while (*end==' ' || *end=='\t') ++end;
-                if (end==buf || *end) { puts("ERROR: INPUT # expects number"); return -1; }
-                v->num=value;
+                double value;
+                if (!numeric_parse(buf,&value)) { puts("ERROR: INPUT # expects number"); return -1; }
+                set_numeric_var(v,value);
             }
             if (line_mode || lx->cur.type!=T_COMMA) break;
             lx_next(lx);

@@ -1,3 +1,4 @@
+#include "numeric.h"
 #include "basic_b3.h"
 #include "basic_b1b2.h"
 #include "music.h"
@@ -14,6 +15,8 @@
 #include "graphics.h"
 
 #include <locale.h>
+#include <limits.h>
+#include <stdint.h>
 #if defined(_WIN32)
 #include <windows.h>
 #include <io.h>
@@ -71,7 +74,18 @@ Variable* find_var(const char* name) { int i; for (i = 0; i < g_var_count; i++) 
 int is_string_var_name(const char* name) { return b3_default_type(name)==3; }
 Variable* ensure_var(const char* name, int isStr) { Variable* v = find_var(name); if (!v) { if (g_var_count >= MAX_VARS) return NULL; v = &g_vars[g_var_count++]; memset(v, 0, sizeof(*v)); strncpy(v->name, name, sizeof(v->name) - 1); v->type = isStr ? VT_STR : VT_NUM; v->num = 0.0; } else { v->type = isStr ? VT_STR : VT_NUM; } return v; }
 
-static size_t safe_mul(size_t a, size_t b) { return (a == 0 || b == 0) ? 0 : (a * b); }
+/* DIM bounds are inclusive; MAT retains its historical logical extents. */
+static size_t array_total(int nd, const int *dims, size_t element) {
+    size_t n=1;
+    if(nd<1 || nd>MAX_DIMS) return 0;
+    for(int i=0;i<nd;i++) {
+        if(dims[i]<1 || dims[i]>=INT_MAX) return 0;
+        size_t extent=(size_t)dims[i]+1;
+        if(n>(size_t)INT_MAX/extent) return 0;
+        n*=extent;
+    }
+    return n<=SIZE_MAX/element?n:0;
+}
 
 Array* array_find(const char* name) {
 	int i; for (i = 0; i < g_array_count; i++) if (_stricmp(g_arrays[i].name, name) == 0) return &g_arrays[i];
@@ -81,16 +95,19 @@ Array* array_find(const char* name) {
 Array* array_dim(const char* name, int ndims, int* dims) {
 	int i; size_t total = 1;
 	if (ndims <= 0 || ndims > MAX_DIMS) return NULL;
-	for (i = 0; i < ndims; i++) { if (dims[i] < 1) dims[i] = 1; total = safe_mul(total, (size_t)dims[i]); }
+	total=array_total(ndims,dims,sizeof(double));
+    if(!total) { printf("ERROR: DIM size\n"); return NULL; }
+    double *fresh=(double*)calloc(total,sizeof(double));
+    if(!fresh) { printf("ERROR: OUT OF MEMORY\n"); return NULL; }
 	{
 		Array* a = array_find(name);
 		if (!a) {
-			if (g_array_count >= MAX_ARRAYS) { printf("ERROR: ARRAY TABLE FULL\n"); return NULL; }
+			if (g_array_count >= MAX_ARRAYS) { printf("ERROR: ARRAY TABLE FULL\n"); free(fresh); return NULL; }
 			a = &g_arrays[g_array_count++]; memset(a, 0, sizeof(*a)); strncpy(a->name, name, sizeof(a->name) - 1);
 		}
 		else if (a->data) { free(a->data); a->data = NULL; }
 		a->ndims = ndims; for (i = 0; i < ndims; i++) a->dims[i] = dims[i];
-		a->data = (double*)calloc(total + (ndims == 1 ? 1 : 0), sizeof(double));
+		a->data = fresh;
 		if (!a->data) { printf("ERROR: OUT OF MEMORY\n"); return NULL; }
 		return a;
 	}
@@ -98,27 +115,37 @@ Array* array_dim(const char* name, int ndims, int* dims) {
 
 int array_index(Array* a, int* subs, int nsubs) {
 	int i; size_t idx = 0, stride = 1;
-	if (!a || nsubs != a->ndims) return -1;
+	if (!a || !a->data || nsubs != a->ndims) return -1;
 	for (i = a->ndims - 1; i >= 0; i--) {
 		int s = subs[i];
-		if (s < 0 || s >= a->dims[i] + (a->ndims == 1 ? 1 : 0)) return -1;  /* 1D MSX DIM upper bound */
+		if (s < 0 || s > a->dims[i]) return -1;  /* 1D MSX DIM upper bound */
 		idx += (size_t)s * stride;
-		stride *= (size_t)a->dims[i];
+		stride *= (size_t)a->dims[i]+1;
 	}
-	if (idx >= (size_t)-1) return -1;
+	if (idx > (size_t)INT_MAX) return -1;
 	return (int)idx;
 }
 
 double array_get(Array* a, int* subs, int nsubs) {
 	int k = array_index(a, subs, nsubs);
-	if (k < 0) { printf("ERROR: SUBSCRIPT\n"); return 0.0; }
+	if (k < 0) { printf("ERROR: SUBSCRIPT\n"); parse_numeric_error(); return 0.0; }
 	return a->data[k];
 }
 
+int assign_numeric_value(const char *name, double value, double *out) {
+    int64_t n;
+    if (parse_numeric_failed()) return 0;
+    if (!numeric_finite(value) || (b3_default_type(name)==1 &&
+        !numeric_i64(value, NUM_TRUNCATE, -9007199254740991LL, 9007199254740991LL, &n))) {
+        parse_numeric_error(); return 0;
+    }
+    *out = b3_default_type(name)==1 ? (double)n : value;
+    return 1;
+}
 void array_set(Array* a, int* subs, int nsubs, double val) {
 	int k = array_index(a, subs, nsubs);
-	if (k < 0) { printf("ERROR: SUBSCRIPT\n"); return; }
-	a->data[k] = val;
+	if (k < 0) { printf("ERROR: SUBSCRIPT\n"); parse_numeric_error(); return; }
+	assign_numeric_value(a->name, val, &a->data[k]);
 }
 
 void arrays_clear(void) {
@@ -135,20 +162,23 @@ SArray* sarray_find(const char* name)
 SArray* sarray_dim(const char* name, int ndims, int* dims) {
 	int i; size_t total = 1;
 	if (ndims <= 0 || ndims > MAX_DIMS) return NULL;
-	for (i = 0; i < ndims; i++) { if (dims[i] < 1) dims[i] = 1; total = (total == 0 ? 0 : total * (size_t)dims[i]); }
+	total=array_total(ndims,dims,sizeof(char*));
+    if(!total) { printf("ERROR: DIM size\n"); return NULL; }
+    char **fresh=(char**)calloc(total,sizeof(char*));
+    if(!fresh) { printf("ERROR: OUT OF MEMORY\n"); return NULL; }
 	{
 		SArray* a = sarray_find(name);
 		if (!a) {
-			if (g_sarray_count >= MAX_SARRAYS) { printf("ERROR: STRING ARRAY TABLE FULL\n"); return NULL; }
+			if (g_sarray_count >= MAX_SARRAYS) { printf("ERROR: STRING ARRAY TABLE FULL\n"); free(fresh); return NULL; }
 			a = &g_sarrays[g_sarray_count++]; memset(a, 0, sizeof(*a)); strncpy(a->name, name, sizeof(a->name) - 1);
 		}
 		else if (a->data) {
-			size_t n = 1; for (i = 0; i < a->ndims; i++) n *= (size_t)a->dims[i];
+			size_t n = 1; for (i = 0; i < a->ndims; i++) n *= (size_t)a->dims[i]+1;
 			for (size_t k = 0; k < n; k++) { if (a->data[k]) free(a->data[k]); }
 			free(a->data); a->data = NULL;
 		}
 		a->ndims = ndims; for (i = 0; i < ndims; i++) a->dims[i] = dims[i];
-		a->data = (char**)calloc(total, sizeof(char*));
+		a->data = fresh;
 		if (!a->data) { printf("ERROR: OUT OF MEMORY\n"); return NULL; }
 		return a;
 	}
@@ -156,28 +186,29 @@ SArray* sarray_dim(const char* name, int ndims, int* dims) {
 
 int sarray_index(SArray* a, int* subs, int nsubs) {
 	int i; size_t idx = 0, stride = 1;
-	if (!a || nsubs != a->ndims) return -1;
+	if (!a || !a->data || nsubs != a->ndims) return -1;
 	for (i = a->ndims - 1; i >= 0; i--) {
-		int s = subs[i]; if (s < 0 || s >= a->dims[i]) return -1;
-		idx += (size_t)s * stride; stride *= (size_t)a->dims[i];
+		int s = subs[i]; if (s < 0 || s > a->dims[i]) return -1;
+		idx += (size_t)s * stride; stride *= (size_t)a->dims[i]+1;
 	}
 	return (int)idx;
 }
 const char* sarray_get(SArray* a, int* subs, int nsubs) {
 	int k = sarray_index(a, subs, nsubs);
-	if (k < 0) { printf("ERROR: SUBSCRIPT\n"); return ""; }
+	if (k < 0) { printf("ERROR: SUBSCRIPT\n"); parse_numeric_error(); return ""; }
 	return a->data[k] ? a->data[k] : "";
 }
 void sarray_set(SArray* a, int* subs, int nsubs, const char* val) {
 	int k = sarray_index(a, subs, nsubs);
-	if (k < 0) { printf("ERROR: SUBSCRIPT\n"); return; }
-	if (a->data[k]) { free(a->data[k]); a->data[k] = NULL; }
-	a->data[k] = strdup_c(val ? val : "");
+	if (k < 0) { printf("ERROR: SUBSCRIPT\n"); parse_numeric_error(); return; }
+	char *copy=strdup_c(val ? val : "");
+    if(!copy) { parse_numeric_error(); return; }
+    free(a->data[k]); a->data[k]=copy;
 }
 void sarrays_clear(void) {
 	int i; for (i = 0; i < g_sarray_count; i++) {
 		if (g_sarrays[i].data) {
-			size_t n = 1; int d; for (d = 0; d < g_sarrays[i].ndims; d++) n *= (size_t)g_sarrays[i].dims[d];
+			size_t n = 1; int d; for (d = 0; d < g_sarrays[i].ndims; d++) n *= (size_t)g_sarrays[i].dims[d]+1;
 			for (size_t k = 0; k < n; k++) if (g_sarrays[i].data[k]) free(g_sarrays[i].data[k]);
 			free(g_sarrays[i].data); g_sarrays[i].data = NULL;
 		}
@@ -290,7 +321,9 @@ extern "C" int exec_multi(const char* src, int duringRun, int currentLine, int* 
 		   THEN/ELSE branches. Do not split it before evaluating condition. */
 		if ((p[0]=='I'||p[0]=='i') && (p[1]=='F'||p[1]=='f') &&
 		    (p[2]==' '||p[2]=='\t')) {
-			return exec_statement(p, duringRun, currentLine, outJump);
+			parse_numeric_reset();
+			int r=exec_statement(p, duringRun, currentLine, outJump);
+			return parse_numeric_failed() ? -1 : r;
 		}
 		// find next ':' or '\' separator (not inside quotes)
 		int in_str = 0;
@@ -310,7 +343,9 @@ extern "C" int exec_multi(const char* src, int duringRun, int currentLine, int* 
 			memcpy(buf, stmt_start, len);
 			buf[len] = '\0';
 
+			parse_numeric_reset();
 			int r = exec_statement(buf, duringRun, currentLine, outJump);
+			if (parse_numeric_failed()) r=-1;
 			if (r != 0) { // stop on jump/quit
 				result = r;
 				break;

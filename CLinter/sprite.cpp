@@ -1,3 +1,4 @@
+#include "numeric.h"
 /* G6: MSX BASIC 1-bit sprites, composited separately from background pages. */
 #include <stdio.h>
 #include <string.h>
@@ -15,9 +16,7 @@ static int collision_enabled=0, collision_latched=0;
 static int collision_target=0, collision_pending=0, collision_previous=0;
 static int fail(const char *msg) { printf("ERROR: SPRITE %s\n",msg); return -1; }
 static int integer(Lexer *lx,int *n) {
-    double v=parse_rel(lx);
-    if(!isfinite(v)||v < -32768||v>32767||trunc(v)!=v)return 0;
-    *n=(int)v;return 1;
+    return numeric_i32(parse_rel(lx),NUM_EXACT,-32768,32767,n);
 }
 /* Hex sprite patterns permit exact binary pixels, including zero bytes. */
 static int hex_digit(int c) {
@@ -82,7 +81,7 @@ int sprite_statement(Lexer *lx) {
     if(lx->cur.type==T_END){slots[id].visible=0;graphics_refresh();return 0;}
     if(!comma(lx))return fail("position syntax");
     if(lx->cur.type!=T_LPAREN)return fail("position syntax");lx_next(lx);
-    if(!integer(lx,&x)||!comma(lx)||!integer(lx,&y)||lx->cur.type!=T_RPAREN)return fail("coordinates");
+    if(!numeric_i32(parse_rel(lx),NUM_ROUND,-32768,32767,&x)||!comma(lx)||!numeric_i32(parse_rel(lx),NUM_ROUND,-32768,32767,&y)||lx->cur.type!=T_RPAREN)return fail("coordinates");
     lx_next(lx);
     if(lx->cur.type==T_COMMA){
         lx_next(lx);if(!integer(lx,&color)||color<0||color>(graphics_current_mode()==20?255:15))return fail("color range");

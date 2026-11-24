@@ -1,3 +1,4 @@
+#include "numeric.h"
 #include "basic_b1b2.h"
 /* Parse.cpp � full classic-C implementation of lexer + expression parser
    Features:
@@ -28,6 +29,11 @@
 #include "runtime.h"
 #include "parse.h"
 
+static int numeric_error_flag;
+void parse_numeric_reset(void) { numeric_error_flag = 0; }
+int parse_numeric_failed(void) { return numeric_error_flag; }
+double parse_numeric_error(void) { if (!numeric_error_flag) printf("ERROR: numeric expression\n"); numeric_error_flag = 1; return 0.0; }
+static double checked(double v) { return numeric_finite(v) ? v : parse_numeric_error(); }
 extern int g_print_col;  /* from printfunc.cpp */
 
 /* --- Lexer --- */
@@ -64,8 +70,17 @@ void lx_next(Lexer* lx) {
 
     /* number */
     if (isdigit((unsigned char)lx->s[lx->i]) || (lx->s[lx->i] == '.' && isdigit((unsigned char)lx->s[lx->i + 1]))) {
-        size_t start = lx->i; while (isdigit((unsigned char)lx->s[lx->i]) || lx->s[lx->i] == '.') lx->i++;
-        { char buf[64]; size_t len = lx->i - start; if (len > 63) len = 63; memcpy(buf, lx->s + start, len); buf[len] = 0; lx->cur.type = T_NUMBER; lx->cur.number = (double)atof(buf); return; }
+        size_t start = lx->i, len; char *buf;
+        while (isdigit((unsigned char)lx->s[lx->i]) || lx->s[lx->i] == '.') lx->i++;
+        if (lx->s[lx->i]=='E' || lx->s[lx->i]=='e') {
+            lx->i++; if (lx->s[lx->i]=='+' || lx->s[lx->i]=='-') lx->i++;
+            while (isdigit((unsigned char)lx->s[lx->i]) || lx->s[lx->i]=='.') lx->i++;
+        }
+        len=lx->i-start; buf=(char*)malloc(len+1); lx->cur.type=T_NUMBER;
+        if (!buf) { lx->cur.number=parse_numeric_error(); return; }
+        memcpy(buf,lx->s+start,len); buf[len]=0;
+        if (!numeric_parse(buf,&lx->cur.number)) lx->cur.number=parse_numeric_error();
+        free(buf); return;
     }
 
     /* string literal: "..." */
@@ -203,7 +218,7 @@ static double parse_factor(Lexer* lx) {
     /* unary */
     if (t.type == T_MINUS) { lx_next(lx); return -parse_factor(lx); }
     if (t.type == T_PLUS) { lx_next(lx); return  parse_factor(lx); }
-    if (t.type == T_NOT) { lx_next(lx); { long v = (long)parse_factor(lx); return (double)(~v); } }
+    if (t.type == T_NOT) { lx_next(lx); { int64_t v; if (!numeric_i64(parse_factor(lx),NUM_TRUNCATE,INT64_MIN,INT64_MAX,&v)) return parse_numeric_error(); return (double)(~v); } }
 
     if (t.type == T_NUMBER) { double v = t.number; lx_next(lx); return v; }
 
@@ -237,13 +252,14 @@ static double parse_factor(Lexer* lx) {
             return clinter_clock();
         }
         if (!strcmp(fname,"POINT")) {
-            int x,y;
+            int x,y,valid_x,valid_y;
             lx_next(lx);
             if (lx->cur.type!=T_LPAREN) return -1.0;
-            lx_next(lx);x=(int)parse_rel(lx);
+            lx_next(lx);valid_x=numeric_i32(parse_rel(lx),NUM_ROUND,-100000,100000,&x);
             if (lx->cur.type!=T_COMMA)return -1.0;
-            lx_next(lx);y=(int)parse_rel(lx);
+            lx_next(lx);valid_y=numeric_i32(parse_rel(lx),NUM_ROUND,-100000,100000,&y);
             if (lx->cur.type==T_RPAREN)lx_next(lx);
+            if (!valid_x || !valid_y) return -1.0;
             return (double)graphics_point(x,y);
         }
         /* --- numeric-returning classic math --- */
@@ -276,7 +292,7 @@ static double parse_factor(Lexer* lx) {
             lx_next(lx); x = parse_rel(lx);
             if (lx->cur.type == T_COMMA) { lx_next(lx); digits = parse_rel(lx); }
             if (lx->cur.type == T_RPAREN) lx_next(lx);
-            return pycompat_round(x, (int)digits);
+            int32_t d; if (!numeric_i32(digits,NUM_EXACT,-15,15,&d)) return parse_numeric_error(); return checked(pycompat_round(x,d));
         }
         if (!strcmp(fname, "MAX") || !strcmp(fname, "MIN")) {
             int ismax = !strcmp(fname, "MAX"), n = 0;
@@ -317,7 +333,7 @@ static double parse_factor(Lexer* lx) {
         }
         if (!strcmp(fname, "LOG10")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return v > 0.0 ? log10(v) : 0.0; }
+            { double v = parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); return v > 0.0 ? log10(v) : parse_numeric_error(); }
         }
 
         if (!strcmp(fname, "LEN")) {
@@ -337,7 +353,7 @@ static double parse_factor(Lexer* lx) {
                             lx_next(lx);
                             while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
                                 if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); break; }
-                                subs[nsubs++] = (int)parse_rel(lx);
+                                subs[nsubs++] = parse_subscript(lx);
                                 if (lx->cur.type == T_COMMA) { lx_next(lx); continue; }
                                 else break;
                             }
@@ -369,7 +385,7 @@ static double parse_factor(Lexer* lx) {
                         int subs[MAX_DIMS], nsubs = 0; SArray* sa = sarray_find(nbuf); lx_next(lx);
                         while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
                             if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); break; }
-                            subs[nsubs++] = (int)parse_rel(lx);
+                            subs[nsubs++] = parse_subscript(lx);
                             if (lx->cur.type == T_COMMA) { lx_next(lx); continue; }
                             else break;
                         }
@@ -389,9 +405,9 @@ static double parse_factor(Lexer* lx) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             {
                 double out = 0.0;
-                if (lx->cur.type == T_STRING) { out = atof(lx->cur.text); lx_next(lx); }
+                if (lx->cur.type == T_STRING) { if (!numeric_parse(lx->cur.text,&out)) out=parse_numeric_error(); lx_next(lx); }
                 else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
-                    Variable* v = find_var(lx->cur.text); const char* s = (v && v->type == VT_STR && v->str) ? v->str : ""; out = atof(s); lx_next(lx);
+                    Variable* v = find_var(lx->cur.text); const char* s = (v && v->type == VT_STR && v->str) ? v->str : ""; if (!numeric_parse(s,&out)) out=parse_numeric_error(); lx_next(lx);
                 }
                 if (lx->cur.type == T_RPAREN) lx_next(lx);
                 return out;
@@ -404,13 +420,13 @@ static double parse_factor(Lexer* lx) {
             if (lx->cur.type == T_LPAREN) lx_next(lx);
             double v = parse_rel(lx);          /* channel number */
             if (lx->cur.type == T_RPAREN) lx_next(lx);
-            return fn_eof((int)v);
+            int32_t channel; if (!numeric_i32(v,NUM_EXACT,0,MAX_FILES-1,&channel)) return parse_numeric_error(); return fn_eof(channel);
         }
 
         /* NOTE: CHR$ and STR$ return strings; in numeric context they coerce via atof(""). */
         if (!strcmp(fname, "CHR$")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-            { int code = (int)parse_rel(lx); if (lx->cur.type == T_RPAREN) lx_next(lx); char tmp[4]; tmp[0] = (char)code; tmp[1] = 0; return atof(tmp); }
+            { int32_t code; if (!numeric_i32(parse_rel(lx),NUM_ROUND,0,255,&code)) return parse_numeric_error(); if (lx->cur.type == T_RPAREN) lx_next(lx); char tmp[4]; tmp[0] = (char)code; tmp[1] = 0; return atof(tmp); }
         }
         if (!strcmp(fname, "STR$")) {
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
@@ -441,7 +457,7 @@ static double parse_factor(Lexer* lx) {
             int start=1; const char* found;
             lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
             if (lx->cur.type == T_NUMBER) {
-                start=(int)parse_rel(lx);
+                start=checked_parameter(parse_rel(lx));
                 if (lx->cur.type == T_COMMA) lx_next(lx);
             }
             if (lx->cur.type == T_STRING) {
@@ -480,13 +496,13 @@ static double parse_factor(Lexer* lx) {
                 else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
                     Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
                 }
-                if (lx->cur.type == T_COMMA) { lx_next(lx); start = (int)parse_rel(lx); }
-                if (lx->cur.type == T_COMMA) { lx_next(lx); len = (int)parse_rel(lx); }
+                if (lx->cur.type == T_COMMA) { lx_next(lx); start = checked_parameter(parse_rel(lx)); }
+                if (lx->cur.type == T_COMMA) { lx_next(lx); len = checked_parameter(parse_rel(lx)); }
                 if (lx->cur.type == T_RPAREN) lx_next(lx);
                 if (start < 1) start = 1; if (len < 0) len = 0;
                 {
                     int sl = (int)strlen(s); int i0 = start - 1; if (i0 > sl) i0 = sl; if (i0 < 0) i0 = 0;
-                    int l = len; if (i0 + l > sl) l = sl - i0; if (l < 0) l = 0;
+                    int l = len; if (l > sl-i0) l = sl - i0; if (l < 0) l = 0;
                     char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
                     memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
                 }
@@ -501,7 +517,7 @@ static double parse_factor(Lexer* lx) {
             else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
                 Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
             }
-            if (lx->cur.type == T_COMMA) { lx_next(lx); n = (int)parse_logic(lx); }
+            if (lx->cur.type == T_COMMA) { lx_next(lx); n = checked_parameter(parse_logic(lx)); }
             if (lx->cur.type == T_RPAREN) lx_next(lx);
             int sl = (int)strlen(s); if (n < 0) n = 0; if (n > sl) n = sl;
             char tmp[1024]; int l = n; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
@@ -516,7 +532,7 @@ static double parse_factor(Lexer* lx) {
             else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
                 Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
             }
-            if (lx->cur.type == T_COMMA) { lx_next(lx); n = (int)parse_logic(lx); }
+            if (lx->cur.type == T_COMMA) { lx_next(lx); n = checked_parameter(parse_logic(lx)); }
             if (lx->cur.type == T_RPAREN) lx_next(lx);
             int sl = (int)strlen(s); if (n < 0) n = 0; if (n > sl) n = sl;
             int i0 = sl - n; if (i0 < 0) i0 = 0;
@@ -532,11 +548,11 @@ static double parse_factor(Lexer* lx) {
             else if (lx->cur.type == T_IDENT && is_string_var_name(lx->cur.text)) {
                 Variable* v = find_var(lx->cur.text); s = (v && v->type == VT_STR && v->str) ? v->str : ""; lx_next(lx);
             }
-            if (lx->cur.type == T_COMMA) { lx_next(lx); start = (int)parse_logic(lx); }
-            if (lx->cur.type == T_COMMA) { lx_next(lx); len = (int)parse_logic(lx); }
+            if (lx->cur.type == T_COMMA) { lx_next(lx); start = checked_parameter(parse_logic(lx)); }
+            if (lx->cur.type == T_COMMA) { lx_next(lx); len = checked_parameter(parse_logic(lx)); }
             if (lx->cur.type == T_RPAREN) lx_next(lx);
             if (start < 1) start = 1; int sl = (int)strlen(s); int i0 = start - 1; if (i0 > sl) i0 = sl;
-            int l = (len > 0 ? len : (sl - i0)); if (i0 + l > sl) l = sl - i0; if (l < 0) l = 0;
+            int l = (len > 0 ? len : (sl - i0)); if (l > sl-i0) l = sl - i0; if (l < 0) l = 0;
             char tmp[1024]; if (l > (int)sizeof(tmp) - 1) l = (int)sizeof(tmp) - 1;
             memcpy(tmp, s + i0, l); tmp[l] = 0; return atof(tmp);
         }
@@ -559,24 +575,16 @@ static double parse_factor(Lexer* lx) {
             }
         }
 
-        /* MOD(x,y) integer remainder; IDIV(x,y) integer division */
-        if (!strcmp(fname, "MOD")) {
-            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-            long a = (long)parse_logic(lx); if (lx->cur.type == T_COMMA) lx_next(lx);
-            long b = (long)parse_logic(lx); if (lx->cur.type == T_RPAREN) lx_next(lx);
-            if (b == 0) return 0.0; /* preserve existing zero-divisor convention */
-            if (b == -1) return 0.0; /* LONG_MIN / -1 is undefined */
-            return (double)(a % b);
+        if (!strcmp(fname,"MOD") || !strcmp(fname,"IDIV")) {
+            int mod=!strcmp(fname,"MOD"); int64_t a,b; double x,y;
+            lx_next(lx); if (lx->cur.type==T_LPAREN) lx_next(lx);
+            x=parse_logic(lx); if (lx->cur.type==T_COMMA) lx_next(lx);
+            y=parse_logic(lx); if (lx->cur.type==T_RPAREN) lx_next(lx);
+            if (!numeric_i64(x,NUM_TRUNCATE,INT64_MIN,INT64_MAX,&a) || !numeric_i64(y,NUM_TRUNCATE,INT64_MIN,INT64_MAX,&b)) return parse_numeric_error();
+            if (!b) return 0.0; /* legacy zero divisor convention */
+            if (b==-1 && a==INT64_MIN) return mod ? 0.0 : -(double)INT64_MIN;
+            return mod ? (double)(a%b) : (double)(a/b);
         }
-        if (!strcmp(fname, "IDIV")) {
-            lx_next(lx); if (lx->cur.type == T_LPAREN) lx_next(lx);
-            long a = (long)parse_logic(lx); if (lx->cur.type == T_COMMA) lx_next(lx);
-            long b = (long)parse_logic(lx); if (lx->cur.type == T_RPAREN) lx_next(lx);
-            if (b == 0) return 0.0; /* preserve existing zero-divisor convention */
-            if (b == -1 && a == LONG_MIN) return -(double)LONG_MIN;
-            return (double)(a / b);
-        }
-
 
         if (strcmp(fname, "ATN") == 0) {
             lx_next(lx);
@@ -611,14 +619,14 @@ static double parse_factor(Lexer* lx) {
             if (lx->cur.type == T_LPAREN) lx_next(lx);
             double v = parse_rel(lx);
             if (lx->cur.type == T_RPAREN) lx_next(lx);
-            return exp(v);
+            return checked(exp(v));
         }
         if (strcmp(fname, "LOG") == 0) { /* natural log */
             lx_next(lx);
             if (lx->cur.type == T_LPAREN) lx_next(lx);
             double v = parse_rel(lx);
             if (lx->cur.type == T_RPAREN) lx_next(lx);
-            return v > 0.0 ? log(v) : 0.0;
+            return v > 0.0 ? log(v) : parse_numeric_error();
         }
         if (strcmp(fname, "POW") == 0) { /* two args */
             lx_next(lx);
@@ -627,14 +635,14 @@ static double parse_factor(Lexer* lx) {
             if (lx->cur.type == T_COMMA) { lx_next(lx); }
             double e = parse_rel(lx);
             if (lx->cur.type == T_RPAREN) lx_next(lx);
-            return pow(b, e);
+            return checked(pow(b, e));
         }
         if (strcmp(fname, "SQR") == 0) { /* sqrt */
             lx_next(lx);
             if (lx->cur.type == T_LPAREN) lx_next(lx);
             double v = parse_rel(lx);
             if (lx->cur.type == T_RPAREN) lx_next(lx);
-            return v >= 0.0 ? sqrt(v) : 0.0;
+            return v >= 0.0 ? sqrt(v) : parse_numeric_error();
         }
         if (strcmp(fname, "ABS") == 0) {
             lx_next(lx);
@@ -654,7 +662,7 @@ static double parse_factor(Lexer* lx) {
             lx_next(lx);
             while (lx->cur.type != T_RPAREN && lx->cur.type != T_END) {
                 if (nsubs >= MAX_DIMS) { printf("ERROR: TOO MANY SUBSCRIPTS\n"); break; }
-                subs[nsubs++] = (int)parse_rel(lx);
+                subs[nsubs++] = parse_subscript(lx);
                 if (lx->cur.type == T_COMMA) { lx_next(lx); continue; }
                 else break;
             }
@@ -687,7 +695,7 @@ static double parse_power(Lexer* lx) {
         lx_next(lx);
         /* recurse to stay right-associative: a^b^c = a^(b^c) */
         double right = parse_power(lx);
-        left = pow(left, right);
+        left = checked(pow(left, right));
     }
     return left;
 }
@@ -698,9 +706,9 @@ static double parse_term(Lexer* lx)
     while (lx->cur.type == T_STAR || lx->cur.type == T_SLASH || lx->cur.type == T_MODOP) {
         TokType op = lx->cur.type; lx_next(lx);
         double rhs = parse_power(lx);     /* was parse_factor */
-        if (op == T_STAR) v *= rhs;
+        if (op == T_STAR) v = checked(v * rhs);
         else if (op == T_MODOP) v = pycompat_mod(v, rhs);
-        else if (rhs != 0.0) v /= rhs;
+        else if (rhs != 0.0) v = checked(v / rhs);
         else v = 0.0; /* match IDIV/MOD zero-divisor convention */
     }
     return v;
@@ -711,7 +719,7 @@ static double parse_expr(Lexer*lx)
     double v=parse_term(lx);
     while(lx->cur.type==T_PLUS||lx->cur.type==T_MINUS){
         TokType op=lx->cur.type; lx_next(lx);
-        { double rhs=parse_term(lx); if(op==T_PLUS) v+=rhs; else v-=rhs; }
+        { double rhs=parse_term(lx); if(op==T_PLUS) v=checked(v+rhs); else v=checked(v-rhs); }
     }
     return v;
 }
@@ -729,7 +737,7 @@ static void read_comparison_string(Lexer *lx, char *out, size_t cap) {
         int subs[MAX_DIMS], n = 0;
         lx_next(lx);
         while (lx->cur.type != T_RPAREN && lx->cur.type != T_END && n < MAX_DIMS) {
-            subs[n++] = (int)parse_rel(lx);
+            subs[n++] = parse_subscript(lx);
             if (lx->cur.type == T_COMMA) lx_next(lx); else break;
         }
         if (lx->cur.type == T_RPAREN) lx_next(lx);
@@ -802,3 +810,19 @@ double parse_rel(Lexer* lx) {
     return parse_logic(lx);
 }
 
+
+static int parse_array_index(Lexer *lx, NumericPolicy policy) {
+    int32_t n;
+    if (!numeric_i32(parse_rel(lx),policy,0,INT32_MAX,&n) || parse_numeric_failed()) {
+        printf("ERROR: SUBSCRIPT or DIM value\n"); parse_numeric_error(); return -1;
+    }
+    return (int)n;
+}
+
+int checked_parameter(double value) {
+    int32_t n;
+    if (!numeric_i32(value,NUM_ROUND,-INT32_MAX,INT32_MAX,&n)) { parse_numeric_error(); return 0; }
+    return n;
+}
+int parse_subscript(Lexer *lx) { return parse_array_index(lx, NUM_ROUND); }
+int parse_dimension(Lexer *lx) { return parse_array_index(lx, NUM_EXACT); }

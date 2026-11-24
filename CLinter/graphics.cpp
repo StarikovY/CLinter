@@ -1,3 +1,4 @@
+#include "numeric.h"
 /* MSX2 primitive graphics: software-indexed framebuffer, optional SDL2 presentation.
    Coordinates and colors remain deterministic with CLINTER_GRAPHICS_HEADLESS=1. */
 #include <stdio.h>
@@ -382,13 +383,16 @@ static int flood_border(int x,int y,int c,int border,int use_border) {
 }
 static int fail(const char *why) { printf("ERROR: GRAPHICS %s\n",why);return -1; }
 static int number(Lexer *lx,int *v) {
+    return numeric_i32(parse_rel(lx),NUM_EXACT,-100000,100000,v);
+}
+static int geometry(Lexer *lx,int *v,int minimum,int maximum) {
     double d=parse_rel(lx);
-    if(!isfinite(d)||d<-100000||d>100000||trunc(d)!=d)return 0;
-    *v=(int)d;return 1;
+    return numeric_range(d,minimum,maximum) &&
+           numeric_i32(d,NUM_ROUND,minimum,maximum,v);
 }
 static int expect(Lexer *lx,TokType type) { if(lx->cur.type!=type)return 0;lx_next(lx);return 1; }
 static int coord(Lexer *lx,int *x,int *y) {
-    return expect(lx,T_LPAREN)&&number(lx,x)&&expect(lx,T_COMMA)&&number(lx,y)&&expect(lx,T_RPAREN);
+    return expect(lx,T_LPAREN)&&geometry(lx,x,-100000,100000)&&expect(lx,T_COMMA)&&geometry(lx,y,-100000,100000)&&expect(lx,T_RPAREN);
 }
 static int draw_string(const char *str) {
     int x=draw_x,y=draw_y,c=ink,scale=1,penup=0,noupdate=0;
@@ -462,7 +466,8 @@ int graphics_statement(Lexer *lx) {
         if(lx->cur.type!=T_END || c<0 || c>color_limit())return fail("LINE syntax/color");
         if(shape)rectangle(x,y,x2,y2,c,shape==2);else line(x,y,x2,y2,c);draw_x=x2;draw_y=y2;
     } else if(!_stricmp(op,"CIRCLE")) {
-        if(!coord(lx,&x,&y)||!expect(lx,T_COMMA)||!number(lx,&r))return fail("CIRCLE syntax");
+        if(!coord(lx,&x,&y)||!expect(lx,T_COMMA))return fail("CIRCLE syntax");
+        if(!geometry(lx,&r,0,2048))return fail("CIRCLE radius/color/arc/aspect");
         {double start=0,end=0,aspect=1.0;int full=1,rs=0,re=0;
          if(expect(lx,T_COMMA)) {
              if(lx->cur.type!=T_COMMA && lx->cur.type!=T_END && !number(lx,&c))return fail("CIRCLE color");

@@ -6,6 +6,8 @@
 #include <limits.h>
 #include "pycompat.h"
 #include "parse.h"
+#include "numeric.h"
+#include <float.h>
 
 static int py_seeded = 0;
 void pycompat_seed(unsigned int seed) { srand(seed); py_seeded = 1; }
@@ -15,24 +17,23 @@ double pycompat_rnd(void) {
 }
 double pycompat_rndint(double low, double high) {
     double a = ceil(low), b = floor(high), range;
-    if (!isfinite(a) || !isfinite(b) || a > b) return 0.0;
+    if (!isfinite(a) || !isfinite(b) || a > b) return parse_numeric_error();
     range = b - a + 1.0;
-    return a + floor(pycompat_rnd() * range);
+    if (!isfinite(range) || range > 9007199254740992.0) return parse_numeric_error();
+    return fmin(b, a + floor(pycompat_rnd() * range));
 }
 double pycompat_round(double x, int digits) {
     double scale;
     if (!isfinite(x) || digits > 15 || digits < -15) return x;
     scale = pow(10.0, (double)digits);
+    if (scale > 1.0 && fabs(x) > DBL_MAX / scale) return x;
     return round(x * scale) / scale;
 }
 double pycompat_mod(double x, double y) {
-    long a, b;
-    if (!isfinite(x) || !isfinite(y) || y == 0.0 ||
-        x >= (double)LONG_MAX || x < (double)LONG_MIN ||
-        y >= (double)LONG_MAX || y < (double)LONG_MIN) return 0.0;
-    a = (long)x; b = (long)y;
-    if (b == 0 || (a == LONG_MIN && b == -1)) return 0.0;
-    return (double)(a % b);
+    int64_t a,b;
+    if (!numeric_i64(x,NUM_TRUNCATE,INT64_MIN,INT64_MAX,&a) || !numeric_i64(y,NUM_TRUNCATE,INT64_MIN,INT64_MAX,&b)) return parse_numeric_error();
+    if (!b || b==-1) return 0.0;
+    return (double)(a%b);
 }
 int pycompat_randomize_statement(Lexer *lx) {
     unsigned int seed;

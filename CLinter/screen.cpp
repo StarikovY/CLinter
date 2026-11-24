@@ -1,3 +1,4 @@
+#include "numeric.h"
 /* PYLinter/MSX-compatible text-screen statements. ANSI is the portable output backend. */
 #include <stdio.h>
 #include <string.h>
@@ -16,11 +17,7 @@ static int screen_error(const char *msg) {
     return -1;
 }
 static int screen_integer(Lexer *lx, int *out) {
-    double v = parse_rel(lx);
-    if (!isfinite(v) || v < -100000.0 || v > 100000.0 || trunc(v) != v)
-        return 0;
-    *out = (int)v;
-    return 1;
+    return numeric_i32(parse_rel(lx),NUM_EXACT,-100000,100000,out);
 }
 static int screen_end(Lexer *lx) { return lx->cur.type == T_END; }
 static int screen_color_code(int index, int background) {
@@ -71,9 +68,9 @@ int screen_statement(Lexer *lx) {
         return 0;
     }
     if (_stricmp(command,"LOCATE") == 0) {
-        if (!screen_integer(lx,&a) || lx->cur.type != T_COMMA) return screen_error("LOCATE syntax");
+        if (!numeric_i32(parse_rel(lx),NUM_ROUND,-100000,100000,&a) || lx->cur.type != T_COMMA) return screen_error("LOCATE syntax");
         lx_next(lx);
-        if (!screen_integer(lx,&b) || !screen_end(lx)) return screen_error("LOCATE syntax");
+        if (!numeric_i32(parse_rel(lx),NUM_ROUND,-100000,100000,&b) || !screen_end(lx)) return screen_error("LOCATE syntax");
         /* MSX coordinates: X=column, Y=row, both zero-based.
            Permit Y=24 as a compatibility status line: ColorScreen1.bas uses it. */
         if (a < 0 || a >= (graphics_current_mode()==20?160:80) || b < 0 || b > (graphics_current_mode()==20?59:24)) return screen_error("LOCATE coordinates out of range");
