@@ -354,3 +354,8 @@ if(BUILD_TESTING AND Python3_EXECUTABLE)
   add_test(NAME clinter_float_statements_p6 COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/tests/regression/float_statement_cases.py" "$<TARGET_FILE:CLinter>")
   set_tests_properties(clinter_float_statements_p6 PROPERTIES TIMEOUT 60 LABELS "CLinter;regression;FLOAT")
 endif()
+
+if(BUILD_TESTING AND Python3_EXECUTABLE)
+  add_test(NAME clinter_float_integration_p7 COMMAND "${Python3_EXECUTABLE}" "${CLINTER_REPO_ROOT}/tests/regression/float_integration_cases.py" "$<TARGET_FILE:CLinter>")
+  set_tests_properties(clinter_float_integration_p7 PROPERTIES TIMEOUT 60 LABELS "CLinter;regression;FLOAT;GRAPHICS;MAT")
+endif()
