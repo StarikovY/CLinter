@@ -38,11 +38,42 @@ int basic_history_expand(const char *input,char *out,size_t capacity) {
         memcpy(out,entries[j],n+1); return 1;
     }} return 0;
 }
+#if defined(_WIN32)
+/* Track the prompt origin relative to the actual cursor, including wrapped
+   lines and scrolling at the bottom of the screen buffer. */
+static void redraw_windows(const char *prompt, const char *buf, size_t len,
+                           size_t cursor, size_t old_len, size_t old_cursor) {
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    fflush(stdout);
+    if (!GetConsoleScreenBufferInfo(h, &info) || info.dwSize.X <= 0) return;
+    const long width = info.dwSize.X;
+    const long cells = width * info.dwSize.Y;
+    const long prefix = (long)strlen(prompt);
+    long start = info.dwCursorPosition.Y * width + info.dwCursorPosition.X
+                 - prefix - (long)old_cursor;
+    if (start < 0 || start >= cells) return;
+    COORD origin = {(SHORT)(start % width), (SHORT)(start / width)};
+    if (!SetConsoleCursorPosition(h, origin)) return;
+    printf("%s%s", prompt, buf);
+    size_t tail = old_len > len ? old_len - len : 0;
+    for (size_t i = 0; i < tail; ++i) putchar(' ');
+    fflush(stdout);
+    if (!GetConsoleScreenBufferInfo(h, &info)) return;
+    long target = info.dwCursorPosition.Y * width + info.dwCursorPosition.X
+                  - (long)tail - (long)(len - cursor);
+    if (target >= 0 && target < cells) {
+        COORD position = {(SHORT)(target % width), (SHORT)(target / width)};
+        SetConsoleCursorPosition(h, position);
+    }
+}
+#else
 static void redraw(const char *prompt,const char *buf,size_t len,size_t cursor) {
     printf("\r\033[2K%s%s",prompt,buf);
     if(len>cursor) printf("\033[%zuD",len-cursor);
     fflush(stdout);
 }
+#endif
 #if defined(_WIN32)
 static int tty_input(void) { return _isatty(_fileno(stdin)) && _isatty(_fileno(stdout)); }
 #else
@@ -54,7 +85,10 @@ int basic_readline(const char *prompt,char *out,size_t capacity) {
 #if defined(_WIN32)
     HANDLE h=GetStdHandle(STD_INPUT_HANDLE); DWORD oldmode;
     if(!GetConsoleMode(h,&oldmode)) { printf("%s",prompt); fflush(stdout); return fgets(out,(int)capacity,stdin)!=NULL; }
-    SetConsoleMode(h,oldmode & ~(ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT));
+    if (!SetConsoleMode(h,oldmode & ~(ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT))) {
+        printf("%s",prompt); fflush(stdout);
+        return fgets(out,(int)capacity,stdin)!=NULL;
+    }
 #else
     struct termios oldmode,raw;
     if(tcgetattr(STDIN_FILENO,&oldmode)!=0) return 0;
@@ -88,7 +122,15 @@ int basic_readline(const char *prompt,char *out,size_t capacity) {
             }
         }
 #endif
+#if defined(_WIN32)
+        size_t old_len=len, old_cursor=pos;
+        if(key=='\r'||key=='\n') {
+            redraw_windows(prompt,out,len,len,old_len,old_cursor);
+            printf("\r\n");break;
+        }
+#else
         if(key=='\r'||key=='\n') {printf("\r\n");break;}
+#endif
         if(key==3) {printf("^C\r\n");out[0]=0;result=-1;break;}
         if(key==4 && len==0) {printf("\r\n");result=0;break;}
         if(key==1||key==1005) pos=0;
@@ -108,7 +150,11 @@ int basic_readline(const char *prompt,char *out,size_t capacity) {
         } else if(key>=32 && key<=255 && len+1<capacity) {
             memmove(out+pos+1,out+pos,len-pos+1);out[pos]=(char)key;pos++;len++;
         }
+#if defined(_WIN32)
+        redraw_windows(prompt,out,len,pos,old_len,old_cursor);
+#else
         redraw(prompt,out,len,pos);
+#endif
     }
 #if defined(_WIN32)
     SetConsoleMode(h,oldmode);

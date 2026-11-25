@@ -23,6 +23,23 @@
 #include <fcntl.h>
 #endif
 
+#if defined(_WIN32)
+/* Native startup colors also work in consoles without VT support. */
+static void windows_console_startup(void) {
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    if (!GetConsoleScreenBufferInfo(h, &info)) return;
+    const WORD attr = FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+    const COORD origin = {0, 0};
+    DWORD written;
+    DWORD cells = (DWORD)info.dwSize.X * (DWORD)info.dwSize.Y;
+    SetConsoleTextAttribute(h, attr);
+    FillConsoleOutputCharacterA(h, ' ', cells, origin, &written);
+    FillConsoleOutputAttribute(h, attr, cells, origin, &written);
+    SetConsoleCursorPosition(h, origin);
+}
+#endif
+
 /* === Ctrl+C (SIGINT) support === */
 volatile sig_atomic_t g_ctrlc_pressed = 0;
 int g_current_exec_line = -1;
@@ -325,12 +342,32 @@ extern "C" int exec_multi(const char* src, int duringRun, int currentLine, int* 
 			int r=exec_statement(p, duringRun, currentLine, outJump);
 			return parse_numeric_failed() ? -1 : r;
 		}
+        // A literal filename may contain a drive colon and backslashes.
+        // Keep the legacy backslash separator for all other statements.
+        const char* arg = stmt_start;
+        while (isalpha((unsigned char)*arg)) ++arg;
+        size_t keyword_len = arg - stmt_start;
+        int file_command = 0;
+        if (isspace((unsigned char)*arg) && (keyword_len == 4 || keyword_len == 8)) {
+            char keyword[9];
+            for (size_t k = 0; k < keyword_len; ++k)
+                keyword[k] = (char)toupper((unsigned char)stmt_start[k]);
+            keyword[keyword_len] = 0;
+            file_command = !strcmp(keyword, "LOAD") || !strcmp(keyword, "SAVE") ||
+                           !strcmp(keyword, "LOADVARS") || !strcmp(keyword, "SAVEVARS");
+        }
+        while (isspace((unsigned char)*arg)) ++arg;
+        const int literal_path = file_command && *arg && *arg != '"';
+        const char* drive_colon = NULL;
+        if (literal_path && isalpha((unsigned char)arg[0]) && arg[1] == ':' &&
+            (arg[2] == '/' || arg[2] == '\\')) drive_colon = arg + 1;
 		// find next ':' or '\' separator (not inside quotes)
 		int in_str = 0;
 		while (*p) {
 			if (*p == '"' && (p == stmt_start || *(p - 1) != '\\'))
 				in_str = !in_str;
-			if (!in_str && (*p == ':' || *p == '\\'))
+			if (!in_str && ((*p == ':' && p != drive_colon) ||
+                            (*p == '\\' && !(literal_path && p >= arg))))
 				break;
 			p++;
 		}
@@ -502,7 +539,15 @@ int main(int argc, char* argv[])
 	/* Enable UTF-8 I/O */
 	setlocale(LC_ALL, "");
 #if defined(_WIN32)
-	/* Make the console use UTF-8 */
+	/* Enable ANSI for BASIC text-screen commands, when supported. */
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD output_mode;
+    if (GetConsoleMode(output, &output_mode)) {
+        const DWORD vt_processing = 0x0004; /* ENABLE_VIRTUAL_TERMINAL_PROCESSING */
+        if (!SetConsoleMode(output, output_mode | ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | vt_processing))
+            SetConsoleMode(output, output_mode | ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT);
+    }
+    /* Make the console use UTF-8 */
 	SetConsoleOutputCP(CP_UTF8);
 	SetConsoleCP(CP_UTF8);
 	/* Optional: make stdout truly write UTF-8 bytes (not OEM translation) */
@@ -534,11 +579,15 @@ int main(int argc, char* argv[])
 	if (autorun == 0)
 	{
         /* Vintage green-on-black terminal, clean at startup. */
+#if defined(_WIN32)
+        windows_console_startup();
+#else
         fputs("\033[0m\033[38;2;0;255;0m\033[48;2;0;0;0m\033[2J\033[H", stdout);
+#endif
         fflush(stdout);
 		printf("     *\n");
 		printf("     *\n");
-		printf("     *       \xB0\n");
+		printf("     *       \xC2\xB0\n");
 		printf("     *           ***   *     **    *  * \n");
 		printf("     *       *  *  *  ***   ****   **  *\n");
 		printf("     *       *  *  *   *    *      *\n");

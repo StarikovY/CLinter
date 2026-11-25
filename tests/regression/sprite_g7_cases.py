@@ -16,6 +16,19 @@ with tempfile.TemporaryDirectory() as tmp:
         p=subprocess.run([exe,str(path)],input='\n',text=True,errors='replace',env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=15)
         if 'ERROR:' in p.stdout or 'PASS' not in p.stdout:raise SystemExit(f'{name}: {p.stdout}')
     target=base/'sample.bas';target.write_text('10 PRINT "G7 LOAD PASS"\n20 END\n')
-    p=subprocess.run([exe],input=f'LOAD {target}\nRUN\nBYE\n',text=True,errors='replace',env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=15)
-    if 'G7 LOAD PASS' not in p.stdout:raise SystemExit('unquoted LOAD failed: '+p.stdout)
+    # Explicit absolute paths, including both Windows separator styles.
+    forms=[str(target.resolve()), target.resolve().as_posix()]
+    for filename in dict.fromkeys(forms):
+        for quoted in (False, True):
+            arg=f'"{filename}"' if quoted else filename
+            saved=base/'saved.bas'
+            save_name=str(saved.resolve()) if '\\' in filename else saved.resolve().as_posix()
+            save_arg=f'"{save_name}"' if quoted else save_name
+            commands=f'LOAD {arg}\nSAVE {save_arg}\nNEW\nLOAD {save_arg}\nRUN\nPRINT "W1 COLON FIRST":PRINT "W1 COLON SECOND"\nBYE\n'
+            p=subprocess.run([exe],input=commands,text=True,errors='replace',env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=15)
+            if ('ERROR:' in p.stdout or 'G7 LOAD PASS' not in p.stdout or
+                not saved.exists() or saved.read_text()!=target.read_text() or
+                'W1 COLON FIRST' not in p.stdout or 'W1 COLON SECOND' not in p.stdout):
+                raise SystemExit(f'LOAD/SAVE path regression ({arg}): {p.stdout}')
+            saved.unlink()
 print('G7 REGRESSION PASS')
