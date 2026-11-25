@@ -385,6 +385,9 @@ static int fail(const char *why) { printf("ERROR: GRAPHICS %s\n",why);return -1;
 static int number(Lexer *lx,int *v) {
     return numeric_i32(parse_rel(lx),NUM_EXACT,-100000,100000,v);
 }
+static int color_number(Lexer *lx,int *v) {
+    return numeric_i32(parse_rel(lx),NUM_ROUND,-100000,100000,v);
+}
 static int geometry(Lexer *lx,int *v,int minimum,int maximum) {
     double d=parse_rel(lx);
     return numeric_range(d,minimum,maximum) &&
@@ -442,7 +445,7 @@ int graphics_statement(Lexer *lx) {
     if(!mode)return fail("SCREEN 5 or SCREEN 7 required");
     if(!_stricmp(op,"PSET") || !_stricmp(op,"PRESET")) {
         if(!coord(lx,&x,&y))return fail("pixel syntax");
-        if(expect(lx,T_COMMA)) {if(!number(lx,&c))return fail("color syntax");}
+        if(expect(lx,T_COMMA)) {if(!color_number(lx,&c))return fail("color syntax");}
         else if(!_stricmp(op,"PRESET"))c=paper;
         if(lx->cur.type!=T_END || c<0 || c>color_limit())return fail("pixel syntax/color");
         pixel(x,y,c);
@@ -454,7 +457,7 @@ int graphics_statement(Lexer *lx) {
         if(!coord(lx,&x2,&y2))return fail("LINE coordinates");
         if(relative){x2+=x;y2+=y;}
         if(expect(lx,T_COMMA)) {
-            if(lx->cur.type!=T_COMMA && lx->cur.type!=T_END && !number(lx,&c))return fail("LINE color");
+            if(lx->cur.type!=T_COMMA && lx->cur.type!=T_END && !color_number(lx,&c))return fail("LINE color");
         }
         if(expect(lx,T_COMMA)) {
             if(lx->cur.type!=T_IDENT)return fail("LINE shape");
@@ -470,7 +473,7 @@ int graphics_statement(Lexer *lx) {
         if(!geometry(lx,&r,0,2048))return fail("CIRCLE radius/color/arc/aspect");
         {double start=0,end=0,aspect=1.0;int full=1,rs=0,re=0;
          if(expect(lx,T_COMMA)) {
-             if(lx->cur.type!=T_COMMA && lx->cur.type!=T_END && !number(lx,&c))return fail("CIRCLE color");
+             if(lx->cur.type!=T_COMMA && lx->cur.type!=T_END && !color_number(lx,&c))return fail("CIRCLE color");
              if(expect(lx,T_COMMA)) {
                  if(lx->cur.type!=T_COMMA && lx->cur.type!=T_END) {start=parse_rel(lx);rs=start<0;full=0;}
                  if(expect(lx,T_COMMA)) {
@@ -486,8 +489,8 @@ int graphics_statement(Lexer *lx) {
         if(!coord(lx,&x,&y))return fail("PAINT coordinates");
         {int border=0,use_border=0;
          if(expect(lx,T_COMMA)) {
-             if(lx->cur.type!=T_COMMA && lx->cur.type!=T_END && !number(lx,&c))return fail("PAINT color");
-             if(expect(lx,T_COMMA)){use_border=1;if(!number(lx,&border))return fail("PAINT border");}
+             if(lx->cur.type!=T_COMMA && lx->cur.type!=T_END && !color_number(lx,&c))return fail("PAINT color");
+             if(expect(lx,T_COMMA)){use_border=1;if(!color_number(lx,&border))return fail("PAINT border");}
          }
          if(lx->cur.type!=T_END || c<0 || c>color_limit() || (use_border && (border<0 || border>color_limit())))return fail("PAINT syntax/color");
          if(flood_border(x,y,c,border,use_border))return fail("out of memory");

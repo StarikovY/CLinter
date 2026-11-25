@@ -84,7 +84,7 @@ int sprite_statement(Lexer *lx) {
     if(!numeric_i32(parse_rel(lx),NUM_ROUND,-32768,32767,&x)||!comma(lx)||!numeric_i32(parse_rel(lx),NUM_ROUND,-32768,32767,&y)||lx->cur.type!=T_RPAREN)return fail("coordinates");
     lx_next(lx);
     if(lx->cur.type==T_COMMA){
-        lx_next(lx);if(!integer(lx,&color)||color<0||color>(graphics_current_mode()==20?255:15))return fail("color range");
+        lx_next(lx);if(!numeric_i32(parse_rel(lx),NUM_ROUND,0,255,&color)||color<0||color>(graphics_current_mode()==20?255:15))return fail("color range");
         if(lx->cur.type==T_COMMA){lx_next(lx);if(!integer(lx,&pattern)||pattern<0||pattern>=PATTERNS)return fail("pattern range");}
     }
     if(lx->cur.type!=T_END)return fail("trailing tokens");

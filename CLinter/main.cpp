@@ -21,6 +21,9 @@
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
+#else
+#include <unistd.h>
+#include <termios.h>
 #endif
 
 #if defined(_WIN32)
@@ -51,7 +54,15 @@ static void on_sigint(int sig) {
 
 /* Install once at program start */
 void install_sigint_handler(void) {
-	signal(SIGINT, on_sigint);
+	#if defined(_WIN32)
+    signal(SIGINT, on_sigint);
+#else
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = on_sigint;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGINT, &action, NULL);
+#endif
 }
 
 /* --------- Globals --------- */
@@ -535,6 +546,19 @@ int main(int argc, char* argv[])
 {
 	/* Install Ctrl+C (SIGINT) handler */
 	install_sigint_handler();
+#if !defined(_WIN32)
+    /* BASIC console INPUT requires cooked input, including CR-to-LF.
+       Repair inherited terminal modes before either execution path. */
+    struct termios console_mode;
+    if (isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &console_mode) == 0) {
+        console_mode.c_iflag &= ~(IGNCR | INLCR);
+        console_mode.c_iflag |= ICRNL;
+        console_mode.c_lflag |= ICANON | ECHO | ISIG;
+        console_mode.c_cc[VINTR] = 3;
+        console_mode.c_cc[VEOF] = 4;
+        tcsetattr(STDIN_FILENO, TCSANOW, &console_mode);
+    }
+#endif
 
 	/* Enable UTF-8 I/O */
 	setlocale(LC_ALL, "");

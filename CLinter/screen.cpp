@@ -19,6 +19,9 @@ static int screen_error(const char *msg) {
 static int screen_integer(Lexer *lx, int *out) {
     return numeric_i32(parse_rel(lx),NUM_EXACT,-100000,100000,out);
 }
+static int screen_color_number(Lexer *lx, int *out) {
+    return numeric_i32(parse_rel(lx),NUM_ROUND,-100000,100000,out);
+}
 static int screen_end(Lexer *lx) { return lx->cur.type == T_END; }
 static int screen_color_code(int index, int background) {
     static const int ansi_normal[8] = {0,4,2,6,1,5,3,7};
@@ -86,25 +89,25 @@ int screen_statement(Lexer *lx) {
         lx_next(lx);
         if(lx->cur.type!=T_LPAREN)return screen_error("palette syntax");
         lx_next(lx);
-        if(!screen_integer(lx,&a) || lx->cur.type!=T_COMMA)return screen_error("palette index");
+        if(!screen_color_number(lx,&a) || lx->cur.type!=T_COMMA)return screen_error("palette index");
         lx_next(lx);
-        if(!screen_integer(lx,&red) || lx->cur.type!=T_COMMA)return screen_error("palette red");
+        if(!screen_color_number(lx,&red) || lx->cur.type!=T_COMMA)return screen_error("palette red");
         lx_next(lx);
-        if(!screen_integer(lx,&green) || lx->cur.type!=T_COMMA)return screen_error("palette green");
+        if(!screen_color_number(lx,&green) || lx->cur.type!=T_COMMA)return screen_error("palette green");
         lx_next(lx);
-        if(!screen_integer(lx,&blue) || lx->cur.type!=T_RPAREN)return screen_error("palette blue");
+        if(!screen_color_number(lx,&blue) || lx->cur.type!=T_RPAREN)return screen_error("palette blue");
         lx_next(lx);
         if(!screen_end(lx) || graphics_set_palette(a,red,green,blue))return screen_error("palette range/syntax");
         return 0;
     }
     if (_stricmp(command,"COLOR") == 0) {
-        if (!screen_integer(lx,&a) || lx->cur.type != T_COMMA) return screen_error("COLOR syntax");
+        if (!screen_color_number(lx,&a) || lx->cur.type != T_COMMA) return screen_error("COLOR syntax");
         lx_next(lx);
-        if (!screen_integer(lx,&b)) return screen_error("COLOR syntax");
+        if (!screen_color_number(lx,&b)) return screen_error("COLOR syntax");
         if (lx->cur.type == T_COMMA) {
             int border;
             lx_next(lx);
-            if (!screen_integer(lx,&border) || border<0 || border>15) return screen_error("COLOR border");
+            if (!screen_color_number(lx,&border) || border<0 || border>15) return screen_error("COLOR border");
             graphics_border(border);
         }
         if (!screen_end(lx)) return screen_error("COLOR syntax");

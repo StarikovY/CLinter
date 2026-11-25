@@ -637,7 +637,10 @@ int exec_statement(const char* src, int duringRun, int currentLine, int* outJump
                 if (native < 0) { printf("ERROR: graphics window closed during INPUT\n"); return -1; }
                 if (native > 0) {
                     fputs(input_prompt, stdout); fflush(stdout);
-                    if (!fgets(value, sizeof(value), stdin)) { printf("ERROR: INPUT end of file\n"); return -1; }
+                    if (!fgets(value, sizeof(value), stdin)) {
+                        if (g_ctrlc_pressed) { clearerr(stdin); return -1; }
+                        printf("ERROR: INPUT end of file\n"); return -1;
+                    }
                 }
             }
 			value[strcspn(value, "\r\n")] = 0;
