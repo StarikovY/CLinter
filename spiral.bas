@@ -19,4 +19,3 @@
 190 K$=INKEY$
 200 IF K$="" THEN PAUSE .05:GOTO 190
 210 END
-2026 -11-21 21:33:16.323 Clinter[93560:9307182] TSM AdjustCapsLockLEDForKeyTransitionHandling - _ISSetPhysicalKeyboardCapsLockLED Inhibit
