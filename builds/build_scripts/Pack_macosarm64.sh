@@ -7,6 +7,9 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BIN="$ROOT/builds/drops/macos-arm64/bin/Release/CLinter"
 SAMPLES="$ROOT/tests/regression/auto"
+ELIZA="$ROOT/packaging/examples/AI/Eliza.bas"
+[[ -f "$ELIZA" ]] || ELIZA="$ROOT/Eliza.bas"
+[[ -f "$ELIZA" ]] || fail "Eliza.bas not found in packaging/examples/AI or repository root."
 OUT="$ROOT/builds/drops/macos-arm64/distribution"
 NAME=CLinter-1.0-macos-arm64
 STAGE="$OUT/$NAME"
@@ -51,6 +54,21 @@ check_deps "$BIN" "$SDL_REF"
 SDL_ID=$(otool -D "$SDL_SRC" | sed -n '2p')
 [[ -n "$SDL_ID" ]] || fail 'SDL2 install ID missing'
 check_deps "$SDL_SRC" "$SDL_ID"
+# sdl2-compat loads SDL3 via dlopen, so otool alone cannot detect it.
+SDL3_PREFIX=$(brew --prefix sdl3 2>/dev/null) || fail 'SDL3 Homebrew prefix not found'
+SDL3_SRC=${CLINTER_SDL3_DYLIB:-$SDL3_PREFIX/lib/libSDL3.0.dylib}
+[[ -f "$SDL3_SRC" ]] || fail "Missing SDL3: $SDL3_SRC"
+lipo -verify_arch arm64 "$SDL3_SRC" || fail 'SDL3 lacks ARM64 architecture'
+SDL3_ID=$(otool -D "$SDL3_SRC" | sed -n '2p')
+[[ -n "$SDL3_ID" ]] || fail 'SDL3 install ID missing'
+check_deps "$SDL3_SRC" "$SDL3_ID"
+SDL3_LICENSE=${CLINTER_SDL3_LICENSE:-}
+if [[ -z "$SDL3_LICENSE" ]]; then
+  for f in "$SDL3_PREFIX/LICENSE.txt" "$SDL3_PREFIX/LICENSE" "$SDL3_PREFIX/share/licenses/sdl3/LICENSE.txt"; do
+    if [[ -f "$f" ]]; then SDL3_LICENSE="$f"; break; fi
+  done
+fi
+[[ -f "$SDL3_LICENSE" ]] || fail 'Set CLINTER_SDL3_LICENSE to the SDL3 license file.'
 mkdir -p "$STAGE/docs" "$STAGE/samples" "$STAGE/lib"
 cp "$BIN" "$STAGE/CLinter"
 cp -L "$SDL_SRC" "$STAGE/lib/libSDL2.dylib"
@@ -58,6 +76,24 @@ chmod u+w "$STAGE/CLinter" "$STAGE/lib/libSDL2.dylib"
 chmod +x "$STAGE/CLinter"
 install_name_tool -id '@rpath/libSDL2.dylib' "$STAGE/lib/libSDL2.dylib"
 install_name_tool -change "$SDL_REF" '@executable_path/lib/libSDL2.dylib' "$STAGE/CLinter"
+cp -L "$SDL3_SRC" "$STAGE/lib/libSDL3.0.dylib"
+chmod u+w "$STAGE/lib/libSDL3.0.dylib"
+install_name_tool -id '@rpath/libSDL3.0.dylib' "$STAGE/lib/libSDL3.0.dylib"
+ln -s libSDL3.0.dylib "$STAGE/lib/libSDL3.dylib"
+codesign --force --sign - "$STAGE/lib/libSDL3.0.dylib"
+codesign --verify --strict "$STAGE/lib/libSDL3.0.dylib"
+check_deps "$STAGE/lib/libSDL3.0.dylib" '@rpath/libSDL3.0.dylib'
+cp "$SDL3_LICENSE" "$STAGE/lib/SDL3_LICENSE.txt"
+# Native dyld search paths for SDL2-compat's dynamically loaded SDL3.
+# Include the calling dylib's directory as well as the executable's lib directory.
+add_rpath() {
+  local file="$1" path="$2"
+  if ! otool -l "$file" | awk '/cmd LC_RPATH/{r=1;next} r && /path /{sub(/^.*path /, "");sub(/ \(offset.*$/, "");print;r=0}' | grep -Fx "$path" >/dev/null; then
+    install_name_tool -add_rpath "$path" "$file"
+  fi
+}
+add_rpath "$STAGE/CLinter" '@executable_path/lib'
+add_rpath "$STAGE/lib/libSDL2.dylib" '@loader_path'
 codesign --force --sign - "$STAGE/lib/libSDL2.dylib"
 codesign --force --sign - "$STAGE/CLinter"
 codesign --verify --strict "$STAGE/lib/libSDL2.dylib"
@@ -70,12 +106,13 @@ cp "$3" "$STAGE/LICENSE.txt"
 cp "$4" "$STAGE/README.md"
 cp "$SAMPLES/regression.bas" "$STAGE/samples/RegTest.bas"
 cp "$SAMPLES/utka.bas" "$STAGE/samples/DuckHuntText.bas"
+cp "$ELIZA" "$STAGE/samples/Eliza.bas"
 cp "$SAMPLES/spiral.bas" "$STAGE/samples/Spiral.bas"
 for f in DuckHuntD1.bas DuckHunt720p.bas Nebula.bas StairwayCloudsDemo.bas; do cp "$SAMPLES/$f" "$STAGE/samples/$f"; done
 # Include SDL2 license from Homebrew or an explicitly supplied license path.
 SDL_LICENSE=${CLINTER_SDL2_LICENSE:-}
 if [[ -z "$SDL_LICENSE" ]] && command -v brew >/dev/null; then
-  prefix=$(brew --prefix sdl2 2>/dev/null || true)
+  prefix=$(brew --prefix sdl2-compat 2>/dev/null || true)
   for f in "$prefix/LICENSE.txt" "$prefix/LICENSE" "$prefix/share/licenses/sdl2/LICENSE.txt"; do
     if [[ -n "$prefix" && -f "$f" ]]; then SDL_LICENSE="$f"; break; fi
   done
@@ -91,13 +128,39 @@ Interactive mode: ./CLinter
 Run a sample: ./CLinter samples/DuckHunt720p.bas
 See docs for English and Russian BASIC manuals.
 Source: https://github.com/StarikovY/CLinter
-License: LICENSE.txt; SDL2 license: lib/SDL2_LICENSE.txt
+License: LICENSE.txt; SDL2 compatibility license: lib/SDL2_LICENSE.txt
+SDL3 license: lib/SDL3_LICENSE.txt
 See README.md for project information.
 Samples include Nebula.bas, Spiral.bas, DuckHuntText.bas,
-DuckHuntD1.bas, DuckHunt720p.bas, StairwayCloudsDemo.bas and RegTest.bas.
+DuckHuntD1.bas, DuckHunt720p.bas, StairwayCloudsDemo.bas, Eliza.bas and RegTest.bas.
 This package is ad-hoc signed, not Developer ID signed or notarized.
 macOS Gatekeeper may require approval before running downloaded software.
 README
-(cd "$OUT" && /usr/bin/zip -q -r "$NAME.zip" "$NAME" && /usr/bin/unzip -tq "$NAME.zip" && shasum -a 256 "$NAME.zip" > "$NAME.zip.sha256")
+# Verify the real native executable actually loads our SDL3, not Homebrew's.
+# Run from a different working directory, without the old launcher's environment.
+SMOKE=$(mktemp -d "${TMPDIR:-/tmp}/clinter-package.XXXXXXXX")
+trap 'rm -rf "$SMOKE"' EXIT
+printf '10 PRINT "CLINTER PACKAGE PASS"\n20 END\n' > "$SMOKE/smoke.bas"
+if ! (cd "$SMOKE" && env -u DYLD_LIBRARY_PATH -u DYLD_FALLBACK_LIBRARY_PATH \
+  -u DYLD_INSERT_LIBRARIES -u SDL3_DYNAMIC_API -u CLINTER_GRAPHICS_HEADLESS \
+  DYLD_PRINT_LIBRARIES=1 "$STAGE/CLinter" "$SMOKE/smoke.bas" </dev/null >stdout 2>dyld.log); then
+  cat "$SMOKE/stdout" "$SMOKE/dyld.log" >&2
+  fail 'Native package smoke test failed; ZIP not created.'
+fi
+grep -F 'CLINTER PACKAGE PASS' "$SMOKE/stdout" >/dev/null || fail 'BASIC smoke test did not finish.'
+# Resolve the physical staging path (dyld may report a canonical path).
+LOCAL_LIB=$(cd "$STAGE/lib" && pwd -P)
+if ! grep -F "$LOCAL_LIB/libSDL3" "$SMOKE/dyld.log" >/dev/null; then
+  cat "$SMOKE/dyld.log" >&2
+  fail 'Bundled SDL3 load not verified; ZIP not created.'
+fi
+if grep -Ei '/(opt/homebrew|usr/local|opt/local)/.*libSDL[23]' "$SMOKE/dyld.log" | grep -Fv "$LOCAL_LIB/" >/dev/null; then
+  fail 'External SDL runtime detected; ZIP not created.'
+fi
+echo 'PASS: native CLinter loaded bundled SDL3 without launcher environment.'
+for f in RegTest.bas DuckHuntText.bas DuckHuntD1.bas DuckHunt720p.bas Nebula.bas Spiral.bas StairwayCloudsDemo.bas Eliza.bas; do
+  [[ -s "$STAGE/samples/$f" ]] || fail "Missing or empty staged sample: $f"
+done
+(cd "$OUT" && /usr/bin/zip -q -y -r "$NAME.zip" "$NAME" && /usr/bin/unzip -tq "$NAME.zip" && shasum -a 256 "$NAME.zip" > "$NAME.zip.sha256")
 echo "SUCCESS: $ZIP"
 echo "SHA256: $ZIP.sha256"

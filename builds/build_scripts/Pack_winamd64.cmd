@@ -9,6 +9,12 @@ set "RU=%~f2"
 set "LICENSE=%~f3"
 set "PROJECT_README=%~f4"
 set "BIN=%ROOT%\builds\drops\win-amd64\bin\Release"
+set "ELIZA=%ROOT%\packaging\examples\AI\Eliza.bas"
+if not exist "%ELIZA%" set "ELIZA=%ROOT%\Eliza.bas"
+if not exist "%ELIZA%" (
+ echo ERROR: Eliza.bas not found in packaging\examples\AI or repository root.
+ exit /b 1
+)
 set "SAMPLES=%ROOT%\tests\regression\auto"
 set "OUT=%ROOT%\builds\drops\win-amd64\distribution"
 set "NAME=CLinter-1.0-win-amd64"
@@ -46,6 +52,7 @@ copy /y "%LICENSE%" "%STAGE%\LICENSE.txt" >nul || goto failed
 copy /y "%PROJECT_README%" "%STAGE%\README.md" >nul || goto failed
 copy /y "%SAMPLES%\regression.bas" "%STAGE%\samples\RegTest.bas" >nul || goto failed
 copy /y "%SAMPLES%\utka.bas" "%STAGE%\samples\DuckHuntText.bas" >nul || goto failed
+copy /y "%ELIZA%" "%STAGE%\samples\Eliza.bas" >nul || goto failed
 copy /y "%SAMPLES%\spiral.bas" "%STAGE%\samples\Spiral.bas" >nul || goto failed
 for %%F in (DuckHuntD1.bas DuckHunt720p.bas Nebula.bas StairwayCloudsDemo.bas) do copy /y "%SAMPLES%\%%F" "%STAGE%\samples\%%F" >nul || goto failed
 (
@@ -60,9 +67,10 @@ for %%F in (DuckHuntD1.bas DuckHunt720p.bas Nebula.bas StairwayCloudsDemo.bas) d
  echo License: LICENSE.txt
  echo See README.md for project information.
  echo Samples include Nebula.bas, Spiral.bas, DuckHuntText.bas,
- echo DuckHuntD1.bas, DuckHunt720p.bas, StairwayCloudsDemo.bas and RegTest.bas.
+ echo DuckHuntD1.bas, DuckHunt720p.bas, StairwayCloudsDemo.bas, Eliza.bas and RegTest.bas.
 ) > "%STAGE%\README_FIRST.txt"
 if errorlevel 1 goto failed
+for %%F in (RegTest.bas DuckHuntText.bas DuckHuntD1.bas DuckHunt720p.bas Nebula.bas Spiral.bas StairwayCloudsDemo.bas Eliza.bas) do if not exist "%STAGE%\samples\%%F" goto failed
 powershell -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; Compress-Archive -LiteralPath $env:STAGE -DestinationPath $env:ZIP; $h=(Get-FileHash -LiteralPath $env:ZIP -Algorithm SHA256).Hash.ToLowerInvariant(); Set-Content -LiteralPath ($env:ZIP+'.sha256') -Encoding ASCII -Value ($h+'  '+[IO.Path]::GetFileName($env:ZIP))" || goto failed
  echo SUCCESS: "%ZIP%"
  echo SHA256: "%ZIP%.sha256"
